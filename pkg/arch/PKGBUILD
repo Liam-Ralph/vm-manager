@@ -1,0 +1,36 @@
+# Maintainer: Liam Ralph <liamralph@tutamail.com>
+pkgname=vm-manager
+pkgver=VERSION
+pkgrel=1
+pkgdesc="Scripts for managing versions of virtual machines."
+arch=(x86_64)
+url="https://github.com/liam-ralph/vm-manager"
+license=("MIT")
+depends=("python>=3.10" "pyside6>=6.4" python-keyring)
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=("SHA256SUM")
+
+package() {
+    cd $pkgname-$pkgver
+    install -Dm755 usr/bin/vm-manager.py "$pkgdir/usr/bin/vm-manager.py"
+    install -Dm644 usr/share/applications/vm-manager.desktop \
+        "$pkgdir/usr/share/applications/vm-manager.desktop"
+    install -Dm644 usr/share/doc/vm-manager/copyright "$pkgdir/usr/share/doc/vm-manager/copyright"
+    install -Dm644 usr/share/doc/vm-manager/README.md "$pkgdir/usr/share/doc/vm-manager/README.md"
+    install -Dm644 usr/share/doc/vm-manager/CHANGELOG.md \
+        "$pkgdir/usr/share/doc/vm-manager/CHANGELOG.md"
+    install -Dm644 usr/share/icons/hicolor/512x512/apps/vm-manager.png \
+        "$pkgdir/usr/share/icons/hicolor/512x512/apps/vm-manager.png"
+    install -Dm644 usr/share/licenses/vm-manager/LICENSE \
+        "$pkgdir/usr/share/licenses/vm-manager/LICENSE"
+    install -Dm644 usr/share/vm-manager/defaults.conf "$pkgdir/usr/share/vm-manager/defaults.conf"
+    find usr/share/vm-manager/icons -type f -exec install -Dm644 {} "$pkgdir/{}" \;
+}
+
+post_remove() {
+    if [[ -n $XDG_CONFIG_DIR && ! -z $XDG_CONFIG_DIR ]]; then
+        rm -rf "$XDG_CONFIG_DIR/vm-manager"
+    else
+        rm -rf /home/*/.config/vm-manager
+    fi
+}

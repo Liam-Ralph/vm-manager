@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=VM Manager
+Type=Application
+Version=VERSION
+Exec=/usr/bin/python3 /usr/bin/vm-manager.py
+Icon=vm-manager
+GenericName=VM Manager
+Comment=Scripts for managing versions of virtual machines.
+Keywords=vm-manager;virtual;machine;vm
+Categories=Utility

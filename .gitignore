@@ -7,4 +7,13 @@ wheels/
 
 /.venv
 
-/config/vm-manager.conf
+/conf/vm-manager.conf
+/conf/machines.conf
+
+/pkg/usr
+/pkg/*.deb
+/pkg/*.rpm
+/pkg/*.pkg.tar.gz
+/pkg/vm-manager_*
+/pkg/rpmbuild
+/pkg/package-build

@@ -1,0 +1,6 @@
+#!/bin/bash
+if [[ -n $XDG_CONFIG_DIR && ! -z $XDG_CONFIG_DIR ]]; then
+    rm -rf "$XDG_CONFIG_DIR/vm-manager"
+else
+    rm -rf /home/*/.config/vm-manager
+fi

@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Source: https://github.com/liam-ralph/vm-manager
+Upstream-Name: VM Manager
+Upstream-Contact: Liam Ralph <liamralph@tutamail.com>
+
+Files:
+ *
+Copyright: 2026 Liam Ralph
+License: Expat
