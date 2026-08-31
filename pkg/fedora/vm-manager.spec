@@ -6,7 +6,7 @@ Summary: Scripts for managing versions of virtual machines.
 
 License: MIT
 URL: https://github.com/liam-ralph/vm-manager
-Requires: python3 >= 3.10, python3-pyside6 >= 6.4, python3-keyring
+Requires: python3 >= 3.10, python3-pyside6 >= 6.4
 Source0: %{name}-%{version}.tar.gz
 
 %description

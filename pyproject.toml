@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "keyring>=25.7.0",
     "pyside6>=6.11.2",
     "pyside6-widgets>=0.1.0",
 ]

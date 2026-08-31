@@ -4,7 +4,7 @@ Section: misc
 Priority: optional
 Architecture: amd64
 Essential: no
-Depends: python3 (>=3.10), python3-pyside6.qtcore (>= 6.4), python3-keyring
+Depends: python3 (>=3.10), python3-pyside6.qtcore (>= 6.4)
 Installed-Size: INSTALLED_SIZE
 Maintainer: Liam Ralph <liamralph@tutamail.com>
 Description: Scripts for managing versions of virtual machines.

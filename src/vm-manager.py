@@ -14,10 +14,6 @@
 
 import subprocess
 
-# Third Party
-
-import keyring
-
 # PySide6
 
 from PySide6.QtWidgets import (
