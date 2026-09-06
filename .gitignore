@@ -8,7 +8,6 @@ wheels/
 /.venv
 
 /conf/vm-manager.conf
-/conf/machines.conf
 
 /pkg/usr
 /pkg/*.deb
@@ -17,3 +16,5 @@ wheels/
 /pkg/vm-manager_*
 /pkg/rpmbuild
 /pkg/package-build
+
+/dev/ssh-test.py
