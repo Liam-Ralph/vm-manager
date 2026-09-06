@@ -11,5 +11,4 @@ dependencies = [
     "keyring>=25.7.0",
     "paramiko>=5.0.0",
     "pyside6>=6.11.2",
-    "pyside6-widgets>=0.1.0",
 ]

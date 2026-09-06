@@ -6,7 +6,7 @@ pkgdesc="Scripts for managing versions of virtual machines."
 arch=(x86_64)
 url="https://github.com/liam-ralph/vm-manager"
 license=("MIT")
-depends=("python>=3.10" "pyside6>=6.4")
+depends=("python>=3.10" "pyside6>=6.4" python-paramiko python-keyring)
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=("SHA256SUM")
 

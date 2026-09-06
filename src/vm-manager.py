@@ -14,7 +14,6 @@
 
 import os
 import shutil
-import subprocess
 
 # Third Party
 
@@ -25,10 +24,17 @@ import paramiko
 
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMainWindow,
+    QPushButton,
     QVBoxLayout,
     QWidget
 )
+from PySide6.QtCore import Qt
 
 
 # Global Variables
@@ -40,14 +46,43 @@ if RELEASE_PATHS:
         SETTINGS_PATH = os.path.expanduser(xdg_config_home + "/vm-manager.conf")
     else:
         SETTINGS_PATH = os.path.expanduser("~/.config/vm-manager.conf")
+    ICONS_PATH = "/usr/share/vm-manager/icons"
 else:
     SETTINGS_PATH = os.path.abspath("conf/defaults.conf")
     # Assuming program is run from project root, not /src
+    ICONS_PATH = "icons"
 
 
 # Classes
 
-# MainWindow
+# Virtual Machine
+
+class VirtualMachine:
+
+    def __init__(self, name, icon, size):
+        self.name = name
+        self.icon = icon
+        self.size = size
+
+# Info Window
+
+class InfoWindow(QMainWindow):
+
+    def __init__(self):
+
+        super().__init__()
+
+        # Setup Info Window
+
+        self.setWindowTitle("VM Manager Info")
+
+        # Create Window
+
+        window = QWidget()
+        layout_back = QVBoxLayout(window)
+        self.setCentralWidget(window)
+
+# Main Window
 
 class MainWindow(QMainWindow):
 
@@ -57,12 +92,12 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
-        # Setup MainWindow
+        # Setup Main Window
 
         self.setWindowTitle("VM Manager")
         # self.setWindowIcon()
         self.showMaximized()
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(800, 550)
 
         # Create Window
 
@@ -70,25 +105,126 @@ class MainWindow(QMainWindow):
         layout_back = QVBoxLayout(window)
         self.setCentralWidget(window)
 
-        # Left (Settings)
+        # Load Settings
 
-        if not os.path.exists(SETTINGS_PATH):
-            shutil.copy("/usr/share/vm-manager/defaults.conf", SETTINGS_PATH)
-        settings = self.load_settings()
+        settings = load_settings()
+
+        # Top
+
+        info_button = QPushButton("Info")
+        info_button.clicked.connect(self.show_info)
+        layout_back.addWidget(info_button)
+        layout_back.setAlignment(info_button, Qt.AlignmentFlag.AlignRight)
 
         # Middle
 
+        layout_middle = QHBoxLayout()
+
+        # Left (Settings)
+
+        layout_left_widget = QWidget()
+        layout_left_widget.setMinimumWidth(200)
+        layout_left_widget.setMaximumWidth(400)
+        layout_left = QVBoxLayout(layout_left_widget)
+
+        layout_left.addWidget(QLabel("SSH Authentication"))
+
+        layout_left.addWidget(QLabel("SSH Key Path"))
+        ssh_key_path_entry = QLineEdit()
+        ssh_key_path_entry.setPlaceholderText(settings["ssh_key_path"])
+        layout_left.addWidget(ssh_key_path_entry)
+
+        ssh_key_type_combo = QComboBox()
+        ssh_key_types = ("RSA", "ECDSA", "Ed25519")
+        ssh_key_type_combo.addItems(ssh_key_types)
+        ssh_key_type_combo.setCurrentIndex(ssh_key_types.index(settings["ssh_key_type"]))
+        layout_left.addWidget(ssh_key_type_combo)
+
+        save_ssh_password_check = QCheckBox("Save SSH Password")
+        save_ssh_password_check.setChecked(settings["save_ssh_password"] == "True")
+        layout_left.addWidget(save_ssh_password_check)
+
+        save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
+        save_ssh_key_password_check.setChecked(settings["save_ssh_key_password"] == "True")
+        layout_left.addWidget(save_ssh_key_password_check)
+
+        layout_left.addSpacing(20)
+        layout_left.addWidget(QLabel("Server Address"))
+
+        layout_left.addWidget(QLabel("Server Hostname"))
+        server_hostname_entry = QLineEdit()
+        server_hostname_entry.setPlaceholderText(settings["server_hostname"])
+        layout_left.addWidget(server_hostname_entry)
+
+        layout_left.addWidget(QLabel("Server Username"))
+        server_username_entry = QLineEdit()
+        server_username_entry.setPlaceholderText(settings["server_username"])
+        layout_left.addWidget(server_username_entry)
+
+        layout_left.addSpacing(20)
+        layout_left.addWidget(QLabel("Virtual Machines Paths"))
+
+        local_vms_path_entry = QLineEdit()
+        local_vms_path_entry.setPlaceholderText(settings["local_vms_path"])
+        layout_left.addWidget(local_vms_path_entry)
+
+        server_vms_path_entry = QLineEdit()
+        server_vms_path_entry.setPlaceholderText(settings["server_vms_path"])
+        layout_left.addWidget(server_vms_path_entry)
+
+        layout_middle.addWidget(layout_left_widget)
+
+        # Center (VM Management)
+
+        layout_center_widget = QWidget()
+        layout_center_widget.setMinimumWidth(400)
+        layout_center = QVBoxLayout(layout_center_widget)
+        layout_center.addWidget(
+            QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
+            )
+        layout_middle.addWidget(layout_center_widget)
+
         # Right (VM Sizes)
+
+        layout_right_widget = QWidget()
+        layout_right_widget.setMinimumWidth(200)
+        layout_right_widget.setMaximumWidth(500)
+        layout_right = QVBoxLayout(layout_right_widget)
+        layout_right.addWidget(
+            QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
+        )
+        layout_middle.addWidget(layout_right_widget)
+
+        # Bottom
+
+
+
+        layout_middle.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout_back.addLayout(layout_middle)
+
+        # Get Missing Settings
+
+        # Get Machines
 
     # Functions
 
-    def load_settings(self):
-        """
-        Load user settings from SETTINGS_PATH.
+    def show_info(self):
+        info_window = InfoWindow()
+        info_window.show()
 
-        :return: A dictionary of settings of form {setting, value}, both str.
-        """
-        settings = {}
+
+# Functions
+
+def load_settings(depth = 0):
+    """
+    Load user settings from **SETTINGS_PATH**.
+
+    :return: A dictionary of settings of form {setting, value}, both str.
+    """
+
+    settings = {}
+
+    try:
         with open(SETTINGS_PATH, "r") as file:
             for line in file:
                 if (line.startswith("#") or line == "\n"):
@@ -99,7 +235,41 @@ class MainWindow(QMainWindow):
                     continue
                 setting, value = line.split("=")
                 settings[setting] = value
-        return settings
+
+    except FileNotFoundError as error:
+        if depth == 0:
+            if not os.path.exists(SETTINGS_PATH):
+                shutil.copy("/usr/share/vm-manager/defaults.conf", SETTINGS_PATH)
+                return load_settings(1)
+            else:
+                raise error
+        else:
+            raise error
+
+    return settings
+
+
+def set_setting(setting, value, depth = 0):
+    """
+    Set user setting in **SETTINGS_PATH**.
+
+    :param setting: The setting to set.
+    :param value: The value to set **setting** to.
+    """
+
+    try:
+        with open(SETTINGS_PATH, "r+") as file:
+            pass
+
+    except FileNotFoundError as error:
+        if depth == 0:
+            if not os.path.exists(SETTINGS_PATH):
+                shutil.copy("/usr/share/vm-manager/defaults.conf", SETTINGS_PATH)
+                return set_setting(setting, value, 1)
+            else:
+                raise error
+        else:
+            raise error
 
 
 # Main Function
