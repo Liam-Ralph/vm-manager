@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget
 )
@@ -40,17 +41,27 @@ from PySide6.QtCore import Qt
 # Global Variables
 
 RELEASE_PATHS = False
+
 if RELEASE_PATHS:
+    PATH_LOGO = "/usr/share/icons/hicolor/512x512/apps/vm-manager.png"
+    PATH_DOC = "/usr/share/doc/vm-manager"
     xdg_config_home = os.getenv("XDG_CONFIG_HOME")
     if xdg_config_home != None:
-        SETTINGS_PATH = os.path.expanduser(xdg_config_home + "/vm-manager.conf")
+        PATH_SETTINGS = os.path.expanduser(xdg_config_home + "/vm-manager.conf")
     else:
-        SETTINGS_PATH = os.path.expanduser("~/.config/vm-manager.conf")
-    ICONS_PATH = "/usr/share/vm-manager/icons"
+        PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager.conf")
+    PATH_ICONS = "/usr/share/vm-manager/icons"
 else:
-    SETTINGS_PATH = os.path.abspath("conf/defaults.conf")
-    # Assuming program is run from project root, not /src
-    ICONS_PATH = "icons"
+    # Assuming relative to project root, not /src
+    PATH_LOGO = os.path.abspath("logo.png")
+    PATH_DOC = os.path.abspath("")
+    PATH_SETTINGS = os.path.abspath("conf/defaults.conf")
+    PATH_ICONS = os.path.abspath("icons")
+
+with open(PATH_DOC + "/README.md", "r") as file:
+    for i in range(2):
+        file.readline()
+    VERSION = file.readline()[12:]
 
 
 # Classes
@@ -127,6 +138,8 @@ class MainWindow(QMainWindow):
         layout_left_widget.setMaximumWidth(400)
         layout_left = QVBoxLayout(layout_left_widget)
 
+        # SSH Authentication Settings
+
         layout_left.addWidget(QLabel("SSH Authentication"))
 
         layout_left.addWidget(QLabel("SSH Key Path"))
@@ -148,6 +161,8 @@ class MainWindow(QMainWindow):
         save_ssh_key_password_check.setChecked(settings["save_ssh_key_password"] == "True")
         layout_left.addWidget(save_ssh_key_password_check)
 
+        # Server Address Settings
+
         layout_left.addSpacing(20)
         layout_left.addWidget(QLabel("Server Address"))
 
@@ -161,8 +176,10 @@ class MainWindow(QMainWindow):
         server_username_entry.setPlaceholderText(settings["server_username"])
         layout_left.addWidget(server_username_entry)
 
+        # Virtual Machines Path Settings
+
         layout_left.addSpacing(20)
-        layout_left.addWidget(QLabel("Virtual Machines Paths"))
+        layout_left.addWidget(QLabel("Virtual Machines Path"))
 
         local_vms_path_entry = QLineEdit()
         local_vms_path_entry.setPlaceholderText(settings["local_vms_path"])
@@ -172,12 +189,14 @@ class MainWindow(QMainWindow):
         server_vms_path_entry.setPlaceholderText(settings["server_vms_path"])
         layout_left.addWidget(server_vms_path_entry)
 
+        layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout_middle.addWidget(layout_left_widget)
 
         # Center (VM Management)
 
         layout_center_widget = QWidget()
         layout_center_widget.setMinimumWidth(400)
+        layout_center_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout_center = QVBoxLayout(layout_center_widget)
         layout_center.addWidget(
             QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
@@ -195,16 +214,28 @@ class MainWindow(QMainWindow):
         )
         layout_middle.addWidget(layout_right_widget)
 
-        # Bottom
-
-
-
-        layout_middle.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout_back.addLayout(layout_middle)
 
-        # Get Missing Settings
+        # Bottom
+
+        message_label = QLabel()
+        layout_back.addWidget(message_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
 
         # Get Machines
+
+        required_settings = (
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path"
+        )
+        missing_setting = False
+        for required_setting in required_settings:
+            if settings[required_setting] == "":
+                message_label.setText(f"Couldn't read machines: {required_setting} not set.")
+                missing_setting = True
+                break
+
+        if not missing_setting:
+            pass
 
     # Functions
 
@@ -217,7 +248,7 @@ class MainWindow(QMainWindow):
 
 def load_settings(depth = 0):
     """
-    Load user settings from **SETTINGS_PATH**.
+    Load user settings from **PATH_SETTINGS**.
 
     :return: A dictionary of settings of form {setting, value}, both str.
     """
@@ -225,7 +256,7 @@ def load_settings(depth = 0):
     settings = {}
 
     try:
-        with open(SETTINGS_PATH, "r") as file:
+        with open(PATH_SETTINGS, "r") as file:
             for line in file:
                 if (line.startswith("#") or line == "\n"):
                     continue
@@ -238,8 +269,8 @@ def load_settings(depth = 0):
 
     except FileNotFoundError as error:
         if depth == 0:
-            if not os.path.exists(SETTINGS_PATH):
-                shutil.copy("/usr/share/vm-manager/defaults.conf", SETTINGS_PATH)
+            if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
+                shutil.copy("/usr/share/vm-manager/defaults.conf", PATH_SETTINGS)
                 return load_settings(1)
             else:
                 raise error
@@ -251,20 +282,20 @@ def load_settings(depth = 0):
 
 def set_setting(setting, value, depth = 0):
     """
-    Set user setting in **SETTINGS_PATH**.
+    Set user setting in **PATH_SETTINGS**.
 
     :param setting: The setting to set.
     :param value: The value to set **setting** to.
     """
 
     try:
-        with open(SETTINGS_PATH, "r+") as file:
+        with open(PATH_SETTINGS, "r+") as file:
             pass
 
     except FileNotFoundError as error:
         if depth == 0:
-            if not os.path.exists(SETTINGS_PATH):
-                shutil.copy("/usr/share/vm-manager/defaults.conf", SETTINGS_PATH)
+            if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
+                shutil.copy("/usr/share/vm-manager/defaults.conf", PATH_SETTINGS)
                 return set_setting(setting, value, 1)
             else:
                 raise error

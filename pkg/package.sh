@@ -30,9 +30,7 @@ install -Dm644 pkg/resources/copyright pkg/usr/share/doc/vm-manager/copyright
 install -Dm644 README.md pkg/usr/share/doc/vm-manager/README.md
 install -Dm644 CHANGELOG.md pkg/usr/share/doc/vm-manager/CHANGELOG.md
 install -Dm644 logo.png pkg/usr/share/icons/hicolor/512x512/apps/vm-manager.png
-if [[ $1 != "debian" ]]; then
-    install -Dm644 LICENSE pkg/usr/share/licenses/vm-manager/LICENSE
-fi
+install -Dm644 LICENSE pkg/usr/share/licenses/vm-manager/LICENSE
 install -Dm644 conf/defaults.conf pkg/usr/share/vm-manager/defaults.conf
 find icons -type f -exec install -Dm644 {} pkg/usr/share/vm-manager/{} \;
 
