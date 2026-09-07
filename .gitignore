@@ -18,3 +18,5 @@ wheels/
 /pkg/package-build
 
 /dev/ssh-test.py
+
+/local-vms-path

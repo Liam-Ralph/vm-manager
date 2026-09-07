@@ -12,7 +12,6 @@
 
 # Standard Library
 
-from enum import Enum
 import os
 import shutil
 
@@ -52,12 +51,14 @@ if RELEASE_PATHS:
         PATH_SETTINGS = os.path.expanduser(xdg_config_home + "/vm-manager.conf")
     else:
         PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager.conf")
+    PATH_DEFAULT_SETTINGS = "/usr/share/vm-manager/defaults.conf"
     PATH_ICONS = "/usr/share/vm-manager/icons"
 else:
     # Assuming relative to project root, not /src
     PATH_LOGO = os.path.abspath("logo.png")
     PATH_DOC = os.path.abspath("")
-    PATH_SETTINGS = os.path.abspath("conf/defaults.conf")
+    PATH_SETTINGS = os.path.abspath("conf/vm-manager.conf")
+    PATH_DEFAULT_SETTINGS = os.path.abspath("conf/defaults.conf")
     PATH_ICONS = os.path.abspath("icons")
 
 with open(PATH_DOC + "/README.md", "r") as file:
@@ -168,35 +169,52 @@ class MainWindow(QMainWindow):
 
         ssh_auth_type_combo = QComboBox()
         ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
-        ssh_auth_type_combo.setCurrentIndex(SSH_AUTH_TYPES.index(settings.ssh_auth_type))
+        ssh_auth_type_combo.setCurrentIndex(SSH_AUTH_TYPES.index(self.settings["ssh_auth_type"]))
         layout_left.addWidget(ssh_auth_type_combo)
 
         layout_left.addWidget(QLabel("SSH Key Path"))
         ssh_key_path_entry = QLineEdit()
-        ssh_key_path_entry.setPlaceholderText(settings.ssh_key_path)
+        ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
         layout_left.addWidget(ssh_key_path_entry)
 
         ssh_key_type_combo = QComboBox()
         ssh_key_type_combo.addItems(SSH_KEY_TYPES)
-        ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(settings.ssh_key_type))
+        ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(self.settings["ssh_key_type"]))
         layout_left.addWidget(ssh_key_type_combo)
 
         save_ssh_password_check = QCheckBox("Save SSH Password")
-        save_ssh_password_check.setChecked(settings.save_ssh_password)
+        save_ssh_password_check.setChecked(self.settings["save_ssh_password"])
         layout_left.addWidget(save_ssh_password_check)
 
-        if settings.save_ssh_password:
+        if self.settings["save_ssh_password"]:
             save_ssh_password_button = QPushButton("Set Saved SSH Password")
-            save_ssh_password_button.connect(
-                password, ok = QInputDialog(self, "Save SSH Password", "Enter Password")
+            def save_ssh_password():
+                password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
                 if ok:
                     keyring.set_password("VM Manager", "SSH Password", password)
-            )
+            save_ssh_password_button.clicked.connect(save_ssh_password)
             layout_left.addWidget(save_ssh_password_button)
 
+        clear_ssh_password_button = QPushButton("Clear Saved SSH Password")
+        clear_ssh_password_button.clicked.connect(lambda: keyring.delete_password("VM Manager", "SSH Password"))
+        layout_left.addWidget(clear_ssh_password_button)
+
         save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
-        save_ssh_key_password_check.setChecked(settings.save_ssh_key_password)
+        save_ssh_key_password_check.setChecked(self.settings["save_ssh_key_password"])
         layout_left.addWidget(save_ssh_key_password_check)
+
+        if self.settings["save_ssh_key_password"]:
+            save_ssh_key_password_button = QPushButton("Set Saved SSH Key Password")
+            def save_ssh_key_password():
+                password, ok = QInputDialog.getText(self, "SSH Key Password", "Enter Password")
+                if ok:
+                    keyring.set_password("VM Manager", "SSH Key Password", password)
+            save_ssh_key_password_button.clicked.connect(save_ssh_key_password)
+            layout_left.addWidget(save_ssh_key_password_button)
+
+        clear_ssh_key_password_button = QPushButton("Clear Saved SSH Key Password")
+        clear_ssh_key_password_button.clicked.connect(lambda: keyring.delete_password("VM Manager", "SSH Key Password"))
+        layout_left.addWidget(clear_ssh_key_password_button)
 
         # Server Address Settings
 
@@ -205,12 +223,12 @@ class MainWindow(QMainWindow):
 
         layout_left.addWidget(QLabel("Server Hostname"))
         server_hostname_entry = QLineEdit()
-        server_hostname_entry.setPlaceholderText(settings.server_hostname)
+        server_hostname_entry.setPlaceholderText(self.settings["server_hostname"])
         layout_left.addWidget(server_hostname_entry)
 
         layout_left.addWidget(QLabel("Server Username"))
         server_username_entry = QLineEdit()
-        server_username_entry.setPlaceholderText(settings.server_username)
+        server_username_entry.setPlaceholderText(self.settings["server_username"])
         layout_left.addWidget(server_username_entry)
 
         # Virtual Machines Path Settings
@@ -219,11 +237,11 @@ class MainWindow(QMainWindow):
         layout_left.addWidget(QLabel("Virtual Machines Path"))
 
         local_vms_path_entry = QLineEdit()
-        local_vms_path_entry.setPlaceholderText(settings.local_vms_path)
+        local_vms_path_entry.setPlaceholderText(self.settings["local_vms_path"])
         layout_left.addWidget(local_vms_path_entry)
 
         server_vms_path_entry = QLineEdit()
-        server_vms_path_entry.setPlaceholderText(settings.server_vms_path)
+        server_vms_path_entry.setPlaceholderText(self.settings["server_vms_path"])
         layout_left.addWidget(server_vms_path_entry)
 
         layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -263,8 +281,8 @@ class MainWindow(QMainWindow):
 
         missing_setting = False
         if (
-            settings.server_hostname == "" or settings.server_username == "" or
-            settings.local_vms_path == "" or settings.server_vms_path == ""
+            self.settings["server_hostname"] == "" or self.settings["server_username"] == "" or
+            self.settings["local_vms_path"] == "" or self.settings["server_vms_path"] == ""
         ):
             message_label.setText(f"Couldn't read machines.")
             missing_setting = True
@@ -274,9 +292,9 @@ class MainWindow(QMainWindow):
             # Connect to Server
 
             ssh = paramiko.SSHClient()
-            if (settings.ssh_auth_type == "Password"):
+            if (self.settings["ssh_auth_type"] == "Password"):
                 found_password = False
-                if (settings.save_ssh_password):
+                if (self.settings["save_ssh_password"]):
                     password = keyring.get_password("VM Manager", "SSH Password")
                     if password is not None:
                         found_password = True
@@ -284,7 +302,7 @@ class MainWindow(QMainWindow):
                     ok = False
                     while not ok:
                         password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
-                ssh.connect(settings.server_hostname, settings.server_username, password)
+                ssh.connect(self.settings["server_hostname"], self.settings["server_username"], password)
 
     # Functions
 
@@ -300,7 +318,7 @@ class MainWindow(QMainWindow):
         try:
             with open(PATH_SETTINGS, "r") as file:
                 for line in file:
-                    if (line.startswith("#") or line == "\n"):
+                    if (line[0] in ("#", "\n")):
                         continue
                     line = line.strip()
                     if line.endswith("="):
@@ -313,8 +331,8 @@ class MainWindow(QMainWindow):
 
         except FileNotFoundError as e:
             if depth == 0:
-                if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
-                    shutil.copy("/usr/share/vm-manager/defaults.conf", PATH_SETTINGS)
+                if not os.path.exists(PATH_SETTINGS):
+                    shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
                     return self.load_settings(1)
                 else:
                     raise e
@@ -345,7 +363,7 @@ class MainWindow(QMainWindow):
         except FileNotFoundError as e:
             if depth == 0:
                 if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
-                    shutil.copy("/usr/share/vm-manager/defaults.conf", PATH_SETTINGS)
+                    shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
                     return self.set_setting(setting, value, 1)
                 else:
                     raise e
