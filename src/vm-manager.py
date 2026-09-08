@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 
 
 # Global Variables
@@ -48,16 +49,19 @@ if RELEASE_PATHS:
     PATH_DOC = "/usr/share/doc/vm-manager"
     xdg_config_home = os.getenv("XDG_CONFIG_HOME")
     if xdg_config_home != None:
-        PATH_SETTINGS = os.path.expanduser(xdg_config_home + "/vm-manager.conf")
+        PATH_SETTINGS = os.path.expanduser(xdg_config_home + "/vm-manager/vm-manager.conf")
+        PATH_MACHINES = os.path.expanduser(xdg_config_home + "/vm-manager/machines.conf")
     else:
-        PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager.conf")
+        PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager/vm-manager.conf")
+        PATH_MACHINES = os.path.expanduser("~/.config/vm-manager/machines.conf")
     PATH_DEFAULT_SETTINGS = "/usr/share/vm-manager/defaults.conf"
     PATH_ICONS = "/usr/share/vm-manager/icons"
 else:
     # Assuming relative to project root, not /src
     PATH_LOGO = os.path.abspath("logo.png")
     PATH_DOC = os.path.abspath("")
-    PATH_SETTINGS = os.path.abspath("conf/vm-manager.conf")
+    PATH_SETTINGS = os.path.abspath("conf/vm-manager/vm-manager.conf")
+    PATH_MACHINES = os.path.abspath("conf/vm-manager/machines.conf")
     PATH_DEFAULT_SETTINGS = os.path.abspath("conf/defaults.conf")
     PATH_ICONS = os.path.abspath("icons")
 
@@ -71,25 +75,6 @@ SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
 
 # Classes
-
-# # Settings
-
-# class Settings: # Change this back to a dict
-
-#     def __init__(
-#         self, ssh_auth_type, ssh_key_path, ssh_key_type,
-#         save_ssh_password_str, save_ssh_key_password_str,
-#         server_hostname, server_username, local_vms_path, server_vms_path
-#     ):
-#         self.ssh_auth_type = ssh_auth_type
-#         self.ssh_key_path = ssh_key_path
-#         self.ssh_key_type = ssh_key_type
-#         self.save_ssh_password = (save_ssh_password_str == "True")
-#         self.save_ssh_key_password = (save_ssh_key_password_str == "True")
-#         self.server_hostname = server_hostname
-#         self.server_username = server_username
-#         self.local_vms_path = local_vms_path
-#         self.server_vms_path = server_vms_path
 
 # Virtual Machine
 
@@ -131,7 +116,9 @@ class MainWindow(QMainWindow):
         # Setup Main Window
 
         self.setWindowTitle("VM Manager")
-        # self.setWindowIcon()
+        icon = QIcon()
+        icon.addFile(PATH_LOGO)
+        self.setWindowIcon(icon)
         self.showMaximized()
         self.setMinimumSize(800, 550)
 
@@ -181,6 +168,10 @@ class MainWindow(QMainWindow):
         ssh_key_type_combo.addItems(SSH_KEY_TYPES)
         ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(self.settings["ssh_key_type"]))
         layout_left.addWidget(ssh_key_type_combo)
+
+        ssh_key_encrypted_check = QCheckBox()
+        ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
+        layout_left.addWidget(ssh_key_encrypted_check)
 
         save_ssh_password_check = QCheckBox("Save SSH Password")
         save_ssh_password_check.setChecked(self.settings["save_ssh_password"])
@@ -289,91 +280,129 @@ class MainWindow(QMainWindow):
 
         if not missing_setting:
 
+            # Load Machines Config
+
+            icons_dict = {}
+            if os.path.exists(PATH_MACHINES):
+                with open(PATH_MACHINES, "r") as file:
+                    for line in file:
+                        path, icon = line.split(" / ")
+                        icons_dict[path] = icon
+
             # Connect to Server
 
-            ssh = paramiko.SSHClient()
-            if (self.settings["ssh_auth_type"] == "Password"):
-                found_password = False
-                if (self.settings["save_ssh_password"]):
-                    password = keyring.get_password("VM Manager", "SSH Password")
-                    if password is not None:
-                        found_password = True
-                if not found_password:
-                    ok = False
-                    while not ok:
-                        password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
-                ssh.connect(self.settings["server_hostname"], self.settings["server_username"], password)
+            ssh = self.connect_ssh()
 
     # Functions
 
-    def load_settings(self, depth = 0):
+    def load_settings(self):
         """
-        Load user settings from **PATH_SETTINGS**.
+        Load user settings from `PATH_SETTINGS`.
 
-        :return: An instance of the **Settings** class containing the loaded settings.
+        :return: An instance of the `Settings` class containing the loaded settings.
         """
 
         self.settings = {}
 
-        try:
-            with open(PATH_SETTINGS, "r") as file:
-                for line in file:
-                    if (line[0] in ("#", "\n")):
-                        continue
-                    line = line.strip()
-                    if line.endswith("="):
-                        self.settings[line[:-1]] = ""
-                        continue
-                    setting, value = line.split("=")
-                    if value in ("True", "False"):
-                        value = (value == "True")
-                    self.settings[setting] = value
+        if not os.path.exists(PATH_SETTINGS):
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
 
-        except FileNotFoundError as e:
-            if depth == 0:
-                if not os.path.exists(PATH_SETTINGS):
-                    shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
-                    return self.load_settings(1)
-                else:
-                    raise e
-            else:
-                raise e
+        with open(PATH_SETTINGS, "r") as file:
+            for line in file:
+                if line[0] in ("#", "\n"):
+                    continue
+                line = line.strip()
+                if line.endswith("="):
+                    self.settings[line[:-1]] = ""
+                    continue
+                setting, value = line.split("=")
+                if value in ("True", "False"):
+                    value = (value == "True")
+                self.settings[setting] = value
 
         for setting in (
-            "ssh_auth_type", "ssh_key_path", "ssh_key_type",
+            "ssh_auth_type", "ssh_key_path", "ssh_key_type", "ssh_key_encrypted",
             "save_ssh_password", "save_ssh_key_password",
             "server_hostname", "server_username", "local_vms_path", "server_vms_path"
         ):
             if setting not in self.settings.keys():
                 raise ValueError("Missing setting: " + setting)
 
-    def set_setting(self, setting, value, depth = 0):
+    def set_setting(self, setting, value):
         """
-        Set user setting in **PATH_SETTINGS**.
+        Set user setting in `PATH_SETTINGS`.
 
         :param setting: The setting to set.
-        :param value: The value to set **setting** to.
+        :param value: The value to set `setting` to.
         """
 
-        try:
-            with open(PATH_SETTINGS, "r+") as file:
-                pass
-            self.settings[setting] = value
+        if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
 
-        except FileNotFoundError as e:
-            if depth == 0:
-                if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
-                    shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
-                    return self.set_setting(setting, value, 1)
-                else:
-                    raise e
-            else:
-                raise e
+        with open(PATH_SETTINGS, "r+") as file:
+            pass
+
+        self.settings[setting] = value
 
     def show_info(self):
         """Open the info window."""
         info_window = InfoWindow()
         info_window.show()
+
+    def connect_ssh(self):
+
+        ssh = paramiko.SSHClient()
+
+        # Password Connection
+
+        if self.settings["ssh_auth_type"] == "Password":
+            found_password = False
+            if self.settings["save_ssh_password"]:
+                password = keyring.get_password("VM Manager", "SSH Password")
+                if password is not None:
+                    found_password = True
+            if not found_password:
+                ok = False
+                while not ok:
+                    password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
+            ssh.connect(self.settings["server_hostname"], self.settings["server_username"], password)
+
+        # Key Connection
+
+        else:
+            if not self.settings["ssh_key_encrypted"]:
+                password = None
+            else:
+                found_password = False
+                if self.settings["save_ssh_key_password"]:
+                    password = keyring.get_password("VM Manager", "SSH Key Password")
+                    if password is not None:
+                        found_password = True
+                if not found_password:
+                    ok = False
+                    while not ok:
+                        password, ok = QInputDialog.getText(self, "SSH Key Password", "Enter Password")
+            if self.settings["ssh_key_type"] == "RSA":
+                key = paramiko.RSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
+            elif self.settings["ssh_key_type"] == "ECDSA":
+                key = paramiko.ECDSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
+            else:
+                key = paramiko.Ed25519Key.from_private_key_file(self.settings["ssh_key_path"], password)
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(self.settings["server_hostname"], self.settings["server_username"], pkey=key)
+
+        # Enter Server Virtual Machines Folder
+
+        stdin, stdout, stderr = ssh.exec_command("cd " + self.settings["server_vms_path"])
+        print(stderr)
+
+        return ssh
 
 
 # Main Function

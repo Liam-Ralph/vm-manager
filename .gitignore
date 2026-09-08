@@ -7,7 +7,7 @@ wheels/
 
 /.venv
 
-/conf/vm-manager.conf
+/conf/vm-manager
 
 /pkg/usr
 /pkg/*.deb
