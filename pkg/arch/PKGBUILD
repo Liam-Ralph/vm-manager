@@ -2,7 +2,7 @@
 pkgname=vm-manager
 pkgver=VERSION
 pkgrel=1
-pkgdesc="Scripts for managing versions of virtual machines."
+pkgdesc="An application for managing copies of virtual machines."
 arch=(x86_64)
 url="https://github.com/liam-ralph/vm-manager"
 license=("MIT")

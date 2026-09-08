@@ -10,7 +10,7 @@ Requires: python3 >= 3.10, python3-pyside6 >= 6.4, python3-paramiko, python3-key
 Source0: %{name}-%{version}.tar.gz
 
 %description
-Scripts for managing versions of virtual machines.
+An application for managing copies of virtual machines.
 
 %global debug_package %{nil}
 

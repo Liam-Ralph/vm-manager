@@ -9,5 +9,5 @@ Depends: python3 (>=3.10),
     python3-paramiko, python3-keyring
 Installed-Size: INSTALLED_SIZE
 Maintainer: Liam Ralph <liamralph@tutamail.com>
-Description: Scripts for managing versions of virtual machines.
+Description: An application for managing copies of virtual machines.
 Homepage: https://github.com/liam-ralph/vm-manager

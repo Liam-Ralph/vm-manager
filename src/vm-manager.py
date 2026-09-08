@@ -5,7 +5,7 @@
 # See LICENSE or this project's source for more information.
 # Project source: https://github.com/liam-ralph/vm-manager
 
-# VM Manager, scripts for managing versions of virtual machines.
+# VM Manager, an application for managing copies of virtual machines.
 
 
 # Imports
