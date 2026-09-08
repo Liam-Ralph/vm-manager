@@ -33,6 +33,8 @@ install -Dm644 usr/share/licenses/vm-manager/LICENSE \
     "$RPM_BUILD_ROOT/usr/share/licenses/vm-manager/LICENSE"
 install -Dm644 usr/share/vm-manager/defaults.conf \
     "$RPM_BUILD_ROOT/usr/share/vm-manager/defaults.conf"
+install -Dm644 usr/share/vm-manager/scripts/server-get-machines.py \
+    "$RPM_BUILD_ROOT/usr/share/vm-manager/scripts/server-get-machines.py"
 find usr/share/vm-manager/icons -type f \
     -exec install -Dm644 {} "$RPM_BUILD_ROOT/{}" \;
 
@@ -55,6 +57,7 @@ fi
 /usr/share/icons/hicolor/512x512/apps/vm-manager.png
 /usr/share/licenses/vm-manager/LICENSE
 /usr/share/vm-manager/defaults.conf
+/usr/share/vm-manager/scripts/server-get-machines.py
 /usr/share/vm-manager/icons/
 
 %changelog

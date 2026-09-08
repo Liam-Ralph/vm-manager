@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QErrorMessage,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -56,6 +57,7 @@ if RELEASE_PATHS:
         PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager/vm-manager.conf")
         PATH_MACHINES = os.path.expanduser("~/.config/vm-manager/machines.conf")
     PATH_DEFAULT_SETTINGS = "/usr/share/vm-manager/defaults.conf"
+    PATH_SCRIPTS = "/usr/share/vm-manager/scripts"
     PATH_ICONS = "/usr/share/vm-manager/icons"
 else:
     # Assuming relative to project root, not /src
@@ -64,6 +66,7 @@ else:
     PATH_SETTINGS = os.path.abspath("conf/vm-manager/vm-manager.conf")
     PATH_MACHINES = os.path.abspath("conf/vm-manager/machines.conf")
     PATH_DEFAULT_SETTINGS = os.path.abspath("conf/defaults.conf")
+    PATH_SCRIPTS = os.path.abspath("src")
     PATH_ICONS = os.path.abspath("icons")
 
 with open(PATH_DOC + "/README.md", "r") as file:
@@ -188,7 +191,9 @@ class MainWindow(QMainWindow):
             layout_left.addWidget(save_ssh_password_button)
 
         clear_ssh_password_button = QPushButton("Clear Saved SSH Password")
-        clear_ssh_password_button.clicked.connect(lambda: keyring.delete_password("VM Manager", "SSH Password"))
+        clear_ssh_password_button.clicked.connect(
+            lambda: keyring.delete_password("VM Manager", "SSH Password")
+        )
         layout_left.addWidget(clear_ssh_password_button)
 
         save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
@@ -205,7 +210,9 @@ class MainWindow(QMainWindow):
             layout_left.addWidget(save_ssh_key_password_button)
 
         clear_ssh_key_password_button = QPushButton("Clear Saved SSH Key Password")
-        clear_ssh_key_password_button.clicked.connect(lambda: keyring.delete_password("VM Manager", "SSH Key Password"))
+        clear_ssh_key_password_button.clicked.connect(
+            lambda: keyring.delete_password("VM Manager", "SSH Key Password")
+        )
         layout_left.addWidget(clear_ssh_key_password_button)
 
         # Server Address Settings
@@ -253,7 +260,9 @@ class MainWindow(QMainWindow):
 
         layout_center_widget = QWidget()
         layout_center_widget.setMinimumWidth(400)
-        layout_center_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout_center_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         layout_center = QVBoxLayout(layout_center_widget)
         layout_center.addWidget(
             QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
@@ -310,6 +319,11 @@ class MainWindow(QMainWindow):
 
     # Functions
 
+    def raise_ssh_error(self, err):
+        error_message = QErrorMessage()
+        error_message.showMessage(err)
+        raise ValueError(err)
+
     def load_settings(self):
         """
         Load user settings from `PATH_SETTINGS`.
@@ -347,7 +361,7 @@ class MainWindow(QMainWindow):
             "vm_ext", "search_depth"
         ):
             if setting not in self.settings.keys():
-                raise ValueError("Missing setting: " + setting)
+                self.raise_ssh_error("Missing setting: " + setting)
 
     def set_setting(self, setting, value):
         """
@@ -389,7 +403,10 @@ class MainWindow(QMainWindow):
                 ok = False
                 while not ok:
                     password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
-            ssh.connect(self.settings["server_hostname"], username=self.settings["server_username"], password=password)
+            ssh.connect(
+                self.settings["server_hostname"], username=self.settings["server_username"],
+                password=password
+            )
 
         # Key Connection
 
@@ -405,19 +422,42 @@ class MainWindow(QMainWindow):
                 if not found_password:
                     ok = False
                     while not ok:
-                        password, ok = QInputDialog.getText(self, "SSH Key Password", "Enter Password")
+                        password, ok = QInputDialog.getText(
+                            self, "SSH Key Password", "Enter Password"
+                        )
             if self.settings["ssh_key_type"] == "RSA":
                 key = paramiko.RSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
             elif self.settings["ssh_key_type"] == "ECDSA":
-                key = paramiko.ECDSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
+                key = paramiko.ECDSAKey.from_private_key_file(
+                    self.settings["ssh_key_path"], password
+                )
             else:
-                key = paramiko.Ed25519Key.from_private_key_file(self.settings["ssh_key_path"], password)
+                key = paramiko.Ed25519Key.from_private_key_file(
+                    self.settings["ssh_key_path"], password
+                )
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(self.settings["server_hostname"], username=self.settings["server_username"], pkey=key)
+            ssh.connect(
+                self.settings["server_hostname"], username=self.settings["server_username"],
+                pkey=key
+            )
 
         # Install Any Missing Scripts
 
+        if self.ssh_path_found(ssh, "~/.local/bin", "d"):
+            stderr = ssh.exec_command("mkdir ~/.local/bin")[2]
+            if stderr != "":
+                self.raise_ssh_error("Error with \"mkdir ~/.local/bin: " + stderr.__repr__())
+
+        for script in os.listdir(PATH_SCRIPTS):
+            if (not RELEASE_PATHS) and script.endswith(__file__):
+                continue
+
         return ssh
+
+    def ssh_path_found(self, ssh, path, type = "e"):
+        if path[0] == "~":
+            path.replace("~", "/home/" + self.settings["server_username"], 1)
+        return "found" in ssh.exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")[1]
 
 
 # Main Function

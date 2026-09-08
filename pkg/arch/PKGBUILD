@@ -24,6 +24,8 @@ package() {
     install -Dm644 usr/share/licenses/vm-manager/LICENSE \
         "$pkgdir/usr/share/licenses/vm-manager/LICENSE"
     install -Dm644 usr/share/vm-manager/defaults.conf "$pkgdir/usr/share/vm-manager/defaults.conf"
+    install -Dm644 usr/share/vm-manager/scripts/server-get-machines.py \
+        "$pkgdir/usr/share/vm-manager/scripts/server-get-machines.py"
     find usr/share/vm-manager/icons -type f -exec install -Dm644 {} "$pkgdir/{}" \;
 }
 
