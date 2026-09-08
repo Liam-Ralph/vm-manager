@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget
 )
@@ -222,10 +223,10 @@ class MainWindow(QMainWindow):
         server_username_entry.setPlaceholderText(self.settings["server_username"])
         layout_left.addWidget(server_username_entry)
 
-        # Virtual Machines Path Settings
+        # Virtual Machines Settings
 
         layout_left.addSpacing(20)
-        layout_left.addWidget(QLabel("Virtual Machines Path"))
+        layout_left.addWidget(QLabel("Virtual Machines"))
 
         local_vms_path_entry = QLineEdit()
         local_vms_path_entry.setPlaceholderText(self.settings["local_vms_path"])
@@ -234,6 +235,16 @@ class MainWindow(QMainWindow):
         server_vms_path_entry = QLineEdit()
         server_vms_path_entry.setPlaceholderText(self.settings["server_vms_path"])
         layout_left.addWidget(server_vms_path_entry)
+
+        vm_ext_entry = QLineEdit()
+        vm_ext_entry.setPlaceholderText(self.settings["vm_ext"])
+        layout_left.addWidget(vm_ext_entry)
+
+        search_depth_slider = QSlider()
+        search_depth_slider.setMinimum(0)
+        search_depth_slider.setMaximum(100)
+        search_depth_slider.setValue(self.settings["search_depth"])
+        layout_left.addWidget(search_depth_slider)
 
         layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout_middle.addWidget(layout_left_widget)
@@ -293,6 +304,10 @@ class MainWindow(QMainWindow):
 
             ssh = self.connect_ssh()
 
+
+
+            ssh.close()
+
     # Functions
 
     def load_settings(self):
@@ -321,12 +336,15 @@ class MainWindow(QMainWindow):
                 setting, value = line.split("=")
                 if value in ("True", "False"):
                     value = (value == "True")
+                elif setting == "search_depth":
+                    value = int(value)
                 self.settings[setting] = value
 
         for setting in (
             "ssh_auth_type", "ssh_key_path", "ssh_key_type", "ssh_key_encrypted",
             "save_ssh_password", "save_ssh_key_password",
-            "server_hostname", "server_username", "local_vms_path", "server_vms_path"
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
+            "vm_ext", "search_depth"
         ):
             if setting not in self.settings.keys():
                 raise ValueError("Missing setting: " + setting)
@@ -371,7 +389,7 @@ class MainWindow(QMainWindow):
                 ok = False
                 while not ok:
                     password, ok = QInputDialog.getText(self, "SSH Password", "Enter Password")
-            ssh.connect(self.settings["server_hostname"], self.settings["server_username"], password)
+            ssh.connect(self.settings["server_hostname"], username=self.settings["server_username"], password=password)
 
         # Key Connection
 
@@ -395,12 +413,9 @@ class MainWindow(QMainWindow):
             else:
                 key = paramiko.Ed25519Key.from_private_key_file(self.settings["ssh_key_path"], password)
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(self.settings["server_hostname"], self.settings["server_username"], pkey=key)
+            ssh.connect(self.settings["server_hostname"], username=self.settings["server_username"], pkey=key)
 
-        # Enter Server Virtual Machines Folder
-
-        stdin, stdout, stderr = ssh.exec_command("cd " + self.settings["server_vms_path"])
-        print(stderr)
+        # Install Any Missing Scripts
 
         return ssh
 
