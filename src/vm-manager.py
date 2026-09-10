@@ -14,6 +14,7 @@
 
 # Standard Library
 
+import importlib
 import os
 import shutil
 
@@ -37,7 +38,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSlider,
     QVBoxLayout,
     QWidget
 )
@@ -55,10 +55,10 @@ if RELEASE_PATHS:
     xdg_config_home = os.getenv("XDG_CONFIG_HOME")
     if xdg_config_home != None:
         PATH_SETTINGS = os.path.expanduser(xdg_config_home + "/vm-manager/vm-manager.conf")
-        PATH_MACHINES = os.path.expanduser(xdg_config_home + "/vm-manager/machines.conf")
+        PATH_VMS_CONF = os.path.expanduser(xdg_config_home + "/vm-manager/vms.conf")
     else:
         PATH_SETTINGS = os.path.expanduser("~/.config/vm-manager/vm-manager.conf")
-        PATH_MACHINES = os.path.expanduser("~/.config/vm-manager/machines.conf")
+        PATH_VMS_CONF = os.path.expanduser("~/.config/vm-manager/vms.conf")
     PATH_DEFAULT_SETTINGS = "/usr/share/vm-manager/defaults.conf"
     PATH_SCRIPTS = "/usr/share/vm-manager/scripts"
     PATH_ICONS = "/usr/share/vm-manager/icons"
@@ -67,9 +67,9 @@ else:
     PATH_LOGO = os.path.abspath("logo.png")
     PATH_DOC = os.path.abspath("")
     PATH_SETTINGS = os.path.abspath("conf/vm-manager/vm-manager.conf")
-    PATH_MACHINES = os.path.abspath("conf/vm-manager/machines.conf")
+    PATH_VMS_CONF = os.path.abspath("conf/vm-manager/vms.conf")
     PATH_DEFAULT_SETTINGS = os.path.abspath("conf/defaults.conf")
-    PATH_SCRIPTS = os.path.abspath("src/server-scripts")
+    PATH_SCRIPTS = os.path.abspath("src")
     PATH_ICONS = os.path.abspath("icons")
 
 PATH_SERVER_SCRIPTS = "~/.local/share/vm-manager"
@@ -89,10 +89,15 @@ SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
 class VirtualMachine:
 
-    def __init__(self, name, icon, size):
+    def __init__(self, name, local_size = None, server_size = None, icon = None):
         self.name = name
-        self.icon = icon
-        self.size = size
+        self.local_size = local_size
+        self.server_size = server_size
+        if icon is not None:
+            self.icon = icon
+        else:
+            # try to read .vbox file
+            # guess based on name
 
 # Info Window
 
@@ -287,7 +292,7 @@ class MainWindow(QMainWindow):
         layout_back.addWidget(message_label, alignment=Qt.AlignmentFlag.AlignCenter)
         layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
 
-        # Get Machines
+        # Get Virtual Machines
 
         missing_setting = False
         if (
@@ -295,38 +300,66 @@ class MainWindow(QMainWindow):
             self.settings["local_vms_path"] == "" or self.settings["server_vms_path"] == "" or
             self.settings["vm_ext"] == ""
         ):
-            message_label.setText(f"Couldn't read machines, missing required setting(s).")
+            message_label.setText(f"Couldn't read virtual machines, missing required setting(s).")
             missing_setting = True
 
         if not missing_setting:
 
-            # Load Machines Config
+            # Load Virtual Machines Config
 
             icons_dict = {}
-            if os.path.exists(PATH_MACHINES):
-                with open(PATH_MACHINES, "r") as file:
+            if os.path.exists(PATH_VMS_CONF):
+                with open(PATH_VMS_CONF, "r") as file:
                     for line in file:
-                        path, icon = line.split(" / ")
-                        icons_dict[path] = icon
+                        name, icon = line.split(" / ")
+                        icons_dict[name] = icon
+
+            # Get Local VMs
+
+            self.vms = []
+
+            get_machines = importlib.import_module(PATH_SCRIPTS + "/get_machines.py")
+            vms_str = get_machines.get_machines(
+                self.settings["local_vms_path"], self.settings["vm_ext"]
+            )
+            for line in vms_str.splitlines():
+                size, name = line.split(" ", 1)
+                self.vms.append(VirtualMachine(
+                    name, local_size=int(size),
+                    icon=[icons_dict[name] if name in icons_dict else None]
+                ))
 
             # Connect to Server
 
             try:
-                ssh = self.connect_ssh()
+                self.connect_ssh()
             except Exception as e:
                 QMessageBox.warning(self, "Error Connecting to SSH", str(e))
 
             else:
 
+                # Get Server VMs
+
                 stdout = self.ssh_exec_command(
-                    ssh, f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/server-get-machines.py\" " +
+                    f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/get-machines.py\" " +
                     f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\""
                 )
 
                 for line in stdout.readlines():
-                    size, path = line.split(" ", 1)
+                    size, name = line.split(" ", 1)
+                    found_vm = False
+                    for vm in self.vms:
+                        if vm.name == name:
+                            vm.server_size = int(size)
+                            found_vm = True
+                            break
+                    if not found_vm:
+                        self.vms.append(VirtualMachine(
+                            name, server_size=int(size),
+                            icon=[icons_dict[name] if name in icons_dict else None]
+                        ))
 
-                ssh.close()
+                self.ssh.close()
 
     # Functions
 
@@ -409,7 +442,7 @@ class MainWindow(QMainWindow):
 
     def connect_ssh(self):
 
-        ssh = paramiko.SSHClient()
+        self.ssh = paramiko.SSHClient()
 
         # Password Connection
 
@@ -421,7 +454,7 @@ class MainWindow(QMainWindow):
                 password = self.get_password("SSH Password")
                 if password is None:
                     raise ValueError("Auth type is password and no password found or given.")
-            ssh.connect(
+            self.ssh.connect(
                 self.settings["server_hostname"], username=self.settings["server_username"],
                 password=password
             )
@@ -448,36 +481,34 @@ class MainWindow(QMainWindow):
                 key = paramiko.Ed25519Key.from_private_key_file(
                     self.settings["ssh_key_path"], password
                 )
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(
+            self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.ssh.connect(
                 self.settings["server_hostname"], username=self.settings["server_username"],
                 pkey=key
             )
 
         # Install Any Missing Scripts
 
-        if not self.ssh_path_found(ssh, PATH_SERVER_SCRIPTS, "d"):
-            self.ssh_exec_command(ssh, "mkdir -p" + PATH_SERVER_SCRIPTS)[2]
+        if not self.ssh_path_found(PATH_SERVER_SCRIPTS, "d"):
+            self.ssh_exec_command("mkdir -p" + PATH_SERVER_SCRIPTS)[2]
 
-        sftp = paramiko.SFTPClient.from_transport(ssh)
+        sftp = paramiko.SFTPClient.from_transport(self.ssh)
 
         for script in os.listdir(PATH_SCRIPTS):
             if (not RELEASE_PATHS) and script.endswith(__file__):
                 continue
-            if not self.ssh_path_found(ssh, script):
-                sftp.put(script, PATH_SERVER_SCRIPTS + os.path.basename(script))
+            if not self.ssh_path_found(script):
+                sftp.put(script, PATH_SERVER_SCRIPTS + "/" + os.path.basename(script))
 
         sftp.close()
 
-        return ssh
-
-    def ssh_path_found(self, ssh, path, type = "e"):
+    def ssh_path_found(self, path, type = "e"):
         if path[0] == "~":
             path.replace("~", "/home/" + self.settings["server_username"], 1)
-        return "found" in ssh.exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")[1]
+        return "found" in self.ssh.exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")[1]
 
-    def ssh_exec_command(self, ssh, command):
-        stdout, stderr = ssh.exec_command(command)[1:]
+    def ssh_exec_command(self, command):
+        stdout, stderr = self.ssh.exec_command(command)[1:]
         if stderr.__repr__() != "":
             self.raise_ssh_error(f"Error with ssh command {command}: {stderr.__repr__()}")
         return stdout
