@@ -82,6 +82,11 @@ with open(PATH_DOC + "/README.md", "r") as file:
 SSH_AUTH_TYPES = ("Password", "Key")
 SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
+ICON_NAMES = {
+    "debian": ["debian", "ubuntu"],
+
+}
+
 
 # Classes
 
@@ -96,8 +101,17 @@ class VirtualMachine:
         if icon is not None:
             self.icon = icon
         else:
-            # try to read .vbox file
-            # guess based on name
+            found = False
+            for key in ICON_NAMES.keys():
+                for assoc_name in ICON_NAMES[key]:
+                    if assoc_name in name.lower():
+                        self.icon = key
+                        found = True
+                        break
+                if found:
+                    break
+            if not found:
+                self.icon = "unknown"
 
 # Info Window
 
@@ -324,10 +338,29 @@ class MainWindow(QMainWindow):
             )
             for line in vms_str.splitlines():
                 size, name = line.split(" ", 1)
-                self.vms.append(VirtualMachine(
-                    name, local_size=int(size),
-                    icon=[icons_dict[name] if name in icons_dict else None]
-                ))
+                icon = [icons_dict[name] if name in icons_dict.keys() else None]
+                if icon is None:
+                    for path in os.listdir(PATH_SCRIPTS + "/" + name):
+                        if path.endswith(".vbox"):
+                            with open(path, "r") as file:
+                                for line in file.readlines():
+                                    if line.strip().startswith("<Machine"):
+                                        for word in line.strip().split(" "):
+                                            if word.startswith("OSType="):
+                                                os_type = word[7:].lower()
+                                                for key in ICON_NAMES.keys():
+                                                    found = False
+                                                    for assoc_name in ICON_NAMES[key]:
+                                                        if assoc_name in os_type.lower(): # search with os_type and name here
+                                                            icon = key
+                                                            found = True
+                                                            break
+                                                    if found:
+                                                        break
+                                                break
+                                        break
+                            break
+                self.vms.append(VirtualMachine(name, local_size=int(size), icon=icon))
 
             # Connect to Server
 
@@ -354,12 +387,18 @@ class MainWindow(QMainWindow):
                             found_vm = True
                             break
                     if not found_vm:
+                        # implement icon searching here
                         self.vms.append(VirtualMachine(
                             name, server_size=int(size),
                             icon=[icons_dict[name] if name in icons_dict else None]
                         ))
 
                 self.ssh.close()
+
+            # Display Virtual Machines
+
+            for vm in self.vms:
+                pass
 
     # Functions
 
