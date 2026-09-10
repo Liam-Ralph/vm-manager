@@ -69,7 +69,7 @@ else:
     PATH_SETTINGS = os.path.abspath("conf/vm-manager/vm-manager.conf")
     PATH_MACHINES = os.path.abspath("conf/vm-manager/machines.conf")
     PATH_DEFAULT_SETTINGS = os.path.abspath("conf/defaults.conf")
-    PATH_SCRIPTS = os.path.abspath("src")
+    PATH_SCRIPTS = os.path.abspath("src/server-scripts")
     PATH_ICONS = os.path.abspath("icons")
 
 PATH_SERVER_SCRIPTS = "~/.local/share/vm-manager"
@@ -252,15 +252,6 @@ class MainWindow(QMainWindow):
         vm_ext_entry.setPlaceholderText(self.settings["vm_ext"])
         layout_left.addWidget(vm_ext_entry)
 
-        layout_left.addWidget(QLabel("Search Depth"))
-        search_depth_slider = QSlider(Qt.Orientation.Horizontal)
-        search_depth_slider.setMinimum(0)
-        search_depth_slider.setMaximum(10)
-        search_depth_slider.setTickInterval(1)
-        search_depth_slider.setTickPosition(QSlider.TickPosition.TicksAbove)
-        search_depth_slider.setValue(self.settings["search_depth"])
-        layout_left.addWidget(search_depth_slider)
-
         layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout_middle.addWidget(layout_left_widget)
 
@@ -327,7 +318,13 @@ class MainWindow(QMainWindow):
 
             else:
 
+                stdout = self.ssh_exec_command(
+                    ssh, f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/server-get-machines.py\" " +
+                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\""
+                )
 
+                for line in stdout.readlines():
+                    size, path = line.split(" ", 1)
 
                 ssh.close()
 
@@ -376,15 +373,12 @@ class MainWindow(QMainWindow):
                 setting, value = line.split("=")
                 if value in ("True", "False"):
                     value = (value == "True")
-                elif setting == "search_depth":
-                    value = int(value)
                 self.settings[setting] = value
 
         for setting in (
             "ssh_auth_type", "ssh_key_path", "ssh_key_type", "ssh_key_encrypted",
             "save_ssh_password", "save_ssh_key_password",
-            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
-            "vm_ext", "search_depth"
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path", "vm_ext"
         ):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
@@ -462,16 +456,18 @@ class MainWindow(QMainWindow):
 
         # Install Any Missing Scripts
 
-        if self.ssh_path_found(ssh, PATH_SERVER_SCRIPTS, "d"):
-            stderr = ssh.exec_command("mkdir -p " + PATH_SERVER_SCRIPTS)[2]
-            if stderr != "":
-                self.raise_ssh_error(
-                    f"Error with mkdir -p {PATH_SERVER_SCRIPTS}: {stderr.__repr__()}"
-                )
+        if not self.ssh_path_found(ssh, PATH_SERVER_SCRIPTS, "d"):
+            self.ssh_exec_command(ssh, "mkdir -p" + PATH_SERVER_SCRIPTS)[2]
+
+        sftp = paramiko.SFTPClient.from_transport(ssh)
 
         for script in os.listdir(PATH_SCRIPTS):
             if (not RELEASE_PATHS) and script.endswith(__file__):
                 continue
+            if not self.ssh_path_found(ssh, script):
+                sftp.put(script, PATH_SERVER_SCRIPTS + os.path.basename(script))
+
+        sftp.close()
 
         return ssh
 
@@ -479,6 +475,12 @@ class MainWindow(QMainWindow):
         if path[0] == "~":
             path.replace("~", "/home/" + self.settings["server_username"], 1)
         return "found" in ssh.exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")[1]
+
+    def ssh_exec_command(self, ssh, command):
+        stdout, stderr = ssh.exec_command(command)[1:]
+        if stderr.__repr__() != "":
+            self.raise_ssh_error(f"Error with ssh command {command}: {stderr.__repr__()}")
+        return stdout
 
 
 # Main Function
