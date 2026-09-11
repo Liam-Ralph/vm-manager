@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
                 # Get Server VMs
 
                 stdout = self.ssh_exec_command(
-                    f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/get-machines.py\" " + # error here
+                    f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
                     f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\""
                 )
 
@@ -512,7 +512,6 @@ class MainWindow(QMainWindow):
             server_path = f"{PATH_SERVER_SCRIPTS}/{script}".replace("~", "/home/" + self.settings["server_username"], 1)
             if (not os.path.isfile(local_path)) or ((not RELEASE_PATHS) and script.endswith(__file__)):
                 continue
-            print(local_path, server_path)
             if not self.ssh_path_found(server_path):
                 sftp.put(local_path, server_path) # broken
 
