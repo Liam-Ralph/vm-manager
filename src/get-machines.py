@@ -16,9 +16,9 @@ def get_machines(path_vms, vm_ext):
                 break
         if vm_path:
             size = 0
-            for subfiles in os.walk(path)[2]:
+            for subpath, subdirs, subfiles in os.walk(path):
                 for subfile in subfiles:
-                    size += os.path.getsize(subfile)
+                    size += os.path.getsize(f"{subpath}/{subfile}")
             dirs[:] = []
             output += f"{size} {os.path.basename(path)}\n"
     return output.strip()

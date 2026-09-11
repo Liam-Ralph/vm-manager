@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QErrorMessage,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -94,32 +95,19 @@ ICON_NAMES = {
 
 class VirtualMachine:
 
-    def __init__(self, name, local_size = None, server_size = None, icon = None):
+    def __init__(self, name, icon, local_size = None, server_size = None):
         self.name = name
+        self.icon = icon
         self.local_size = local_size
         self.server_size = server_size
-        if icon is not None:
-            self.icon = icon
-        else:
-            found = False
-            for key in ICON_NAMES.keys():
-                for assoc_name in ICON_NAMES[key]:
-                    if assoc_name in name.lower():
-                        self.icon = key
-                        found = True
-                        break
-                if found:
-                    break
-            if not found:
-                self.icon = "unknown"
 
 # Info Window
 
 class InfoWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self, parent):
 
-        super().__init__()
+        super().__init__(parent)
 
         # Setup Info Window
 
@@ -283,7 +271,7 @@ class MainWindow(QMainWindow):
         )
         layout_center = QVBoxLayout(layout_center_widget)
         layout_center.addWidget(
-            QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
+            QLabel("Virtual Machine Management", alignment=Qt.AlignmentFlag.AlignCenter)
             )
         layout_middle.addWidget(layout_center_widget)
 
@@ -332,34 +320,15 @@ class MainWindow(QMainWindow):
 
             self.vms = []
 
-            get_machines = importlib.import_module(PATH_SCRIPTS + "/get_machines.py")
+            spec = importlib.util.spec_from_file_location("get-machines", PATH_SCRIPTS + "/get-machines.py")
+            get_machines = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(get_machines)
             vms_str = get_machines.get_machines(
                 self.settings["local_vms_path"], self.settings["vm_ext"]
             )
             for line in vms_str.splitlines():
                 size, name = line.split(" ", 1)
-                icon = [icons_dict[name] if name in icons_dict.keys() else None]
-                if icon is None:
-                    for path in os.listdir(PATH_SCRIPTS + "/" + name):
-                        if path.endswith(".vbox"):
-                            with open(path, "r") as file:
-                                for line in file.readlines():
-                                    if line.strip().startswith("<Machine"):
-                                        for word in line.strip().split(" "):
-                                            if word.startswith("OSType="):
-                                                os_type = word[7:].lower()
-                                                for key in ICON_NAMES.keys():
-                                                    found = False
-                                                    for assoc_name in ICON_NAMES[key]:
-                                                        if assoc_name in os_type.lower(): # search with os_type and name here
-                                                            icon = key
-                                                            found = True
-                                                            break
-                                                    if found:
-                                                        break
-                                                break
-                                        break
-                            break
+                icon = self.get_icon(name, self.settings["local_vms_path"], icons_dict)
                 self.vms.append(VirtualMachine(name, local_size=int(size), icon=icon))
 
             # Connect to Server
@@ -374,11 +343,11 @@ class MainWindow(QMainWindow):
                 # Get Server VMs
 
                 stdout = self.ssh_exec_command(
-                    f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/get-machines.py\" " +
+                    f"/usr/bin/python3 \"{PATH_SERVER_SCRIPTS}/get-machines.py\" " + # error here
                     f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\""
                 )
 
-                for line in stdout.readlines():
+                for line in stdout.splitlines():
                     size, name = line.split(" ", 1)
                     found_vm = False
                     for vm in self.vms:
@@ -387,23 +356,27 @@ class MainWindow(QMainWindow):
                             found_vm = True
                             break
                     if not found_vm:
-                        # implement icon searching here
-                        self.vms.append(VirtualMachine(
-                            name, server_size=int(size),
-                            icon=[icons_dict[name] if name in icons_dict else None]
-                        ))
+                        icon = self.get_icon(name, self.settings["server_vms_path"], icons_dict)
+                        self.vms.append(VirtualMachine(name, server_size=int(size), icon=icon))
 
                 self.ssh.close()
 
             # Display Virtual Machines
 
             for vm in self.vms:
-                pass
+
+                layout_vm_frame = QFrame()
+                layout_vm = QHBoxLayout(layout_vm_frame)
+
+
+
+                layout_center.addWidget(layout_vm_frame)
 
     # Functions
 
     def raise_ssh_error(self, err):
-        QErrorMessage.showMessage(err)
+        error_message = QErrorMessage(self)
+        error_message.showMessage(err)
         raise ValueError(err)
 
     def get_password(self, title):
@@ -476,7 +449,7 @@ class MainWindow(QMainWindow):
 
     def show_info(self):
         """Open the info window."""
-        info_window = InfoWindow()
+        info_window = InfoWindow(self)
         info_window.show()
 
     def connect_ssh(self):
@@ -501,6 +474,7 @@ class MainWindow(QMainWindow):
         # Key Connection
 
         else:
+
             password = None
             if self.settings["ssh_key_encrypted"]:
                 if self.settings["save_ssh_key_password"]:
@@ -529,28 +503,82 @@ class MainWindow(QMainWindow):
         # Install Any Missing Scripts
 
         if not self.ssh_path_found(PATH_SERVER_SCRIPTS, "d"):
-            self.ssh_exec_command("mkdir -p" + PATH_SERVER_SCRIPTS)[2]
+            self.ssh_exec_command("mkdir -p " + PATH_SERVER_SCRIPTS)
 
-        sftp = paramiko.SFTPClient.from_transport(self.ssh)
+        sftp = self.ssh.open_sftp()
 
         for script in os.listdir(PATH_SCRIPTS):
-            if (not RELEASE_PATHS) and script.endswith(__file__):
+            local_path = f"{PATH_SCRIPTS}/{script}"
+            server_path = f"{PATH_SERVER_SCRIPTS}/{script}".replace("~", "/home/" + self.settings["server_username"], 1)
+            if (not os.path.isfile(local_path)) or ((not RELEASE_PATHS) and script.endswith(__file__)):
                 continue
-            if not self.ssh_path_found(script):
-                sftp.put(script, PATH_SERVER_SCRIPTS + "/" + os.path.basename(script))
+            print(local_path, server_path)
+            if not self.ssh_path_found(server_path):
+                sftp.put(local_path, server_path) # broken
 
         sftp.close()
 
     def ssh_path_found(self, path, type = "e"):
         if path[0] == "~":
-            path.replace("~", "/home/" + self.settings["server_username"], 1)
-        return "found" in self.ssh.exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")[1]
+            path = path.replace("~", "/home/" + self.settings["server_username"], 1)
+        return b"found" in self.ssh_exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")
 
     def ssh_exec_command(self, command):
         stdout, stderr = self.ssh.exec_command(command)[1:]
-        if stderr.__repr__() != "":
-            self.raise_ssh_error(f"Error with ssh command {command}: {stderr.__repr__()}")
-        return stdout
+        stderr_data = stderr.read()
+        if stderr_data:
+            self.raise_ssh_error(f"Error with ssh command \"{command}\": {stderr_data}")
+        return stdout.read()
+
+    def get_icon(self, name, vms_path, icons_dict):
+
+        # Check Saved Icons
+
+        icon = icons_dict[name] if name in icons_dict.keys() else None
+
+        if icon is None:
+
+            # Search Function
+
+            def search_icon_names(target):
+                nonlocal icon
+                for key in ICON_NAMES.keys():
+                    found = False
+                    for assoc_name in ICON_NAMES[key]:
+                        if assoc_name in name.lower():
+                            icon = key
+                            found = True
+                            break
+                    if found:
+                        break
+
+            # Compare with Name
+
+            search_icon_names(name)
+
+            if icon is None:
+
+                # Look for OS Type
+
+                os_type = None
+                for path in os.listdir(vms_path + "/" + name):
+                    if path.endswith(".vbox"):
+                        with open(f"{vms_path}/{name}/{path}", "r") as file:
+                            for line in file.readlines():
+                                if line.strip().startswith("<Machine"):
+                                    for word in line.strip().split(" "):
+                                        if word.startswith("OSType="):
+                                            os_type = word[7:].lower()
+                                            break
+                                    break
+                        break
+
+                # Compare with OS Type
+
+                search_icon_names(os_type)
+
+        return icon
+
 
 
 # Main Function
