@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QErrorMessage,
     QFrame,
     QHBoxLayout,
+    QImage,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -118,6 +119,61 @@ class InfoWindow(QMainWindow):
         window = QWidget()
         layout_back = QVBoxLayout(window)
         self.setCentralWidget(window)
+
+# Virtual Machine Widget
+
+class VirtualMachineWidget(QWidget):
+
+    # Constructor
+
+    def __init__(self, vm, local):
+
+        super().__init__()
+
+        self.setFixedSize(600, 600)
+
+        vm_size = vm.local_size if local else vm.server_size
+
+        if vm_size is not None:
+
+            layout_back = QVBoxLayout(self)
+            layout_back.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+            # Virtual Machine Size
+
+            layout_back.addWidget(QLabel(format_size(vm_size)))
+
+            layout_bottom = QHBoxLayout()
+
+            # Buttons
+
+            buttons = QWidget()
+            buttons.setFixedSize(200, 400)
+            layout_buttons = QVBoxLayout(buttons)
+            layout_buttons.setAlignment(Qt.AlignmentFlag.AlignTop)
+            push_vm_button = QPushButton("Push")
+            layout_buttons.addWidget(push_vm_button)
+            pull_vm_button = QPushButton("Pull")
+            layout_buttons.addWidget(pull_vm_button)
+            remove_vm_button = QPushButton("Pull")
+            layout_buttons.addWidget(remove_vm_button)
+            layout_bottom.addWidget(buttons)
+
+            # Virtual Machine Icon
+
+            icon = QImage()
+            icon.load(f"{PATH_ICONS}/{vm.icon}")
+            icon.setFixedSize(400, 400)
+            layout_bottom.addWidget(icon)
+
+            layout_back.addLayout(layout_bottom)
+
+        else:
+
+            icon = QImage()
+            icon.load(PATH_ICONS + "/missing.png")
+            icon.setFixedSize(600, 600)
+            self.addWidget(icon)
 
 # Main Window
 
@@ -365,12 +421,28 @@ class MainWindow(QMainWindow):
 
             for vm in self.vms:
 
-                layout_vm_frame = QFrame()
-                layout_vm = QHBoxLayout(layout_vm_frame)
+                vm_frame = QFrame()
+                layout_back = QVBoxLayout(vm_frame)
 
+                # Name
 
+                layout_back.addWidget(QLabel(vm.name))
 
-                layout_center.addWidget(layout_vm_frame)
+                layout_bottom = QHBoxLayout()
+
+                # Local VM
+
+                layout_bottom.addWidget(VirtualMachineWidget(vm, True), alignment=Qt.AlignmentFlag.AlignLeft)
+
+                # Status
+
+                # Server VM
+
+                layout_bottom.addWidget(VirtualMachineWidget(vm, False), alignment=Qt.AlignmentFlag.AlignRight)
+
+                layout_back.addLayout(layout_bottom)
+
+                layout_center.addWidget(vm_frame)
 
     # Functions
 
@@ -576,8 +648,17 @@ class MainWindow(QMainWindow):
 
                 search_icon_names(os_type)
 
-        return icon
+        return icon + ".png"
 
+
+# Functions
+
+def format_size(size):
+    suffixes = {"B", "kiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+    exp = 0
+    while (size >= pow(1024, exp + 1)):
+        ++exp
+    return str(round(size / pow(1024, exp), 1)) + suffixes[exp]
 
 
 # Main Function
