@@ -17,6 +17,7 @@
 import importlib
 import os
 import shutil
+import threading
 
 # Third Party
 
@@ -41,10 +42,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget
 )
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPalette, QPixmap
 
 
@@ -132,6 +134,11 @@ class InfoWindow(QMainWindow):
 # Main Window
 
 class MainWindow(QMainWindow):
+
+    # Signals
+
+    add_vm_signal = Signal(QWidget)
+    message_signal = Signal(str)
 
     # Constructor
 
@@ -309,24 +316,32 @@ class MainWindow(QMainWindow):
         update_button = QPushButton("Update All")
         layout_vm_buttons.addWidget(update_button)
 
+        # Load Virtual Machines
+
+        load_button = QPushButton("Load Virtual Machines")
+        load_button.setFixedWidth(300)
+        load_button.clicked.connect(self.load_virtual_machines)
+        layout_center.addWidget(load_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+
         layout_center.addLayout(layout_vm_buttons)
 
         # Individual Machines
 
-        layout_center_listwidget = QListWidget()
-        layout_center_listwidget.setMinimumWidth(400)
-        layout_center_listwidget.setSizePolicy(
+        self.layout_center_listwidget = QListWidget()
+        self.layout_center_listwidget.setMinimumWidth(400)
+        self.layout_center_listwidget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout_center_listwidget.viewport().setBackgroundRole(QPalette.Window)
-        layout_center_listwidget.setFlow(QListWidget.Flow.LeftToRight)
-        layout_center_listwidget.setWrapping(True)
-        layout_center_listwidget.setMovement(QListWidget.Movement.Static)
-        layout_center_listwidget.setResizeMode(QListWidget.ResizeMode.Adjust)
-        layout_center_listwidget.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        layout_center_listwidget.setSpacing(5)
-        layout_center.addWidget(layout_center_listwidget)
+        self.layout_center_listwidget.viewport().setBackgroundRole(QPalette.Window)
+        self.layout_center_listwidget.setFlow(QListWidget.Flow.LeftToRight)
+        self.layout_center_listwidget.setWrapping(True)
+        self.layout_center_listwidget.setMovement(QListWidget.Movement.Static)
+        self.layout_center_listwidget.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.layout_center_listwidget.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.layout_center_listwidget.setSpacing(5)
+        self.add_vm_signal.connect(self.add_vm)
+        layout_center.addWidget(self.layout_center_listwidget)
 
         layout_middle.addWidget(layout_center_widget)
 
@@ -345,19 +360,24 @@ class MainWindow(QMainWindow):
 
         # Bottom
 
-        message_label = QLabel()
-        layout_back.addWidget(message_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.message_label = QLabel()
+        self.message_signal.connect(self.message_label.setText)
+        layout_back.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
         layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
 
-        # Get Virtual Machines
+    # Functions
+
+    def load_virtual_machines(self):
+
+        # Load Virtual Machines
 
         missing_setting = False
         if (
             self.settings["server_hostname"] == "" or self.settings["server_username"] == "" or
             self.settings["local_vms_path"] == "" or self.settings["server_vms_path"] == "" or
-            self.settings["vm_ext"] == ""
+            self.settings["vm_ext"] == "" or self.settings["vm_hashfile_path"] == ""
         ):
-            message_label.setText(f"Couldn't read virtual machines, missing required setting(s).")
+            self.message_signal.emit(f"Couldn't read virtual machines, missing required setting(s).")
             missing_setting = True
 
         if not missing_setting:
@@ -420,7 +440,7 @@ class MainWindow(QMainWindow):
 
             for vm in self.vms:
 
-                vm_widget = QWidget(layout_center_listwidget)
+                vm_widget = QWidget()
                 vm_widget.setFixedSize(400, 200)
                 vm_widget.setObjectName("vm_widget")
                 vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
@@ -488,13 +508,15 @@ class MainWindow(QMainWindow):
 
                 vm_layout_back.addLayout(vm_layout_bottom)
 
-                item = QListWidgetItem()
-                item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
-                layout_center_listwidget.addItem(item)
-                item.setSizeHint(QSize(400, 200))
-                layout_center_listwidget.setItemWidget(item, vm_widget)
+                self.add_vm_signal.emit(vm_widget)
 
-    # Functions
+    def add_vm(self, vm_widget):
+        vm_widget.setParent(self.layout_center_listwidget)
+        item = QListWidgetItem()
+        item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
+        self.layout_center_listwidget.addItem(item)
+        item.setSizeHint(QSize(400, 200))
+        self.layout_center_listwidget.setItemWidget(item, vm_widget)
 
     def raise_ssh_error(self, err):
         error_message = QErrorMessage(self)
