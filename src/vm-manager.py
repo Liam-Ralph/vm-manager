@@ -30,21 +30,20 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QErrorMessage,
-    QFrame,
     QHBoxLayout,
-    QImage,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
 
 
 # Global Variables
@@ -96,11 +95,19 @@ ICON_NAMES = {
 
 class VirtualMachine:
 
-    def __init__(self, name, icon, local_size = None, server_size = None):
-        self.name = name
+    def __init__(self, path, icon, local_size = None, server_size = None, local_md5 = None, server_md5 = None):
+        self.name = os.path.basename(path)
+        self.path = path
         self.icon = icon
         self.local_size = local_size
         self.server_size = server_size
+        self.local_md5 = local_md5
+        self.server_md5 = server_md5
+
+    def md5_match(self):
+        if self.local_md5 is None or self.server_md5 is None:
+            return False
+        return self.local_md5 == self.server_md5
 
 # Info Window
 
@@ -120,61 +127,6 @@ class InfoWindow(QMainWindow):
         layout_back = QVBoxLayout(window)
         self.setCentralWidget(window)
 
-# Virtual Machine Widget
-
-class VirtualMachineWidget(QWidget):
-
-    # Constructor
-
-    def __init__(self, vm, local):
-
-        super().__init__()
-
-        self.setFixedSize(600, 600)
-
-        vm_size = vm.local_size if local else vm.server_size
-
-        if vm_size is not None:
-
-            layout_back = QVBoxLayout(self)
-            layout_back.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-            # Virtual Machine Size
-
-            layout_back.addWidget(QLabel(format_size(vm_size)))
-
-            layout_bottom = QHBoxLayout()
-
-            # Buttons
-
-            buttons = QWidget()
-            buttons.setFixedSize(200, 400)
-            layout_buttons = QVBoxLayout(buttons)
-            layout_buttons.setAlignment(Qt.AlignmentFlag.AlignTop)
-            push_vm_button = QPushButton("Push")
-            layout_buttons.addWidget(push_vm_button)
-            pull_vm_button = QPushButton("Pull")
-            layout_buttons.addWidget(pull_vm_button)
-            remove_vm_button = QPushButton("Pull")
-            layout_buttons.addWidget(remove_vm_button)
-            layout_bottom.addWidget(buttons)
-
-            # Virtual Machine Icon
-
-            icon = QImage()
-            icon.load(f"{PATH_ICONS}/{vm.icon}")
-            icon.setFixedSize(400, 400)
-            layout_bottom.addWidget(icon)
-
-            layout_back.addLayout(layout_bottom)
-
-        else:
-
-            icon = QImage()
-            icon.load(PATH_ICONS + "/missing.png")
-            icon.setFixedSize(600, 600)
-            self.addWidget(icon)
-
 # Main Window
 
 class MainWindow(QMainWindow):
@@ -193,6 +145,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon)
         self.showMaximized()
         self.setMinimumSize(800, 550)
+        self.setStyleSheet("QScrollArea { border: none; }")
 
         # Create Window
 
@@ -217,9 +170,10 @@ class MainWindow(QMainWindow):
 
         # Left (Settings)
 
+        layout_left_scrollarea = QScrollArea()
+        layout_left_scrollarea.setMinimumWidth(200)
+        layout_left_scrollarea.setMaximumWidth(400)
         layout_left_widget = QWidget()
-        layout_left_widget.setMinimumWidth(200)
-        layout_left_widget.setMaximumWidth(400)
         layout_left = QVBoxLayout(layout_left_widget)
 
         # SSH Authentication Settings
@@ -303,33 +257,46 @@ class MainWindow(QMainWindow):
         layout_left.addSpacing(20)
         layout_left.addWidget(QLabel("Virtual Machines"))
 
+        layout_left.addWidget(QLabel("Local VMs Path"))
         local_vms_path_entry = QLineEdit()
         local_vms_path_entry.setPlaceholderText(self.settings["local_vms_path"])
         layout_left.addWidget(local_vms_path_entry)
 
+        layout_left.addWidget(QLabel("Server VMs Path"))
         server_vms_path_entry = QLineEdit()
         server_vms_path_entry.setPlaceholderText(self.settings["server_vms_path"])
         layout_left.addWidget(server_vms_path_entry)
 
+        layout_left.addWidget(QLabel("VM Extension"))
         vm_ext_entry = QLineEdit()
         vm_ext_entry.setPlaceholderText(self.settings["vm_ext"])
         layout_left.addWidget(vm_ext_entry)
 
+        layout_left.addWidget(QLabel("VM Hashfile Path"))
+        vm_hashfile_path_entry = QLineEdit()
+        vm_hashfile_path_entry.setPlaceholderText(self.settings["vm_hashfile_path"])
+        layout_left.addWidget(vm_hashfile_path_entry)
+
         layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout_middle.addWidget(layout_left_widget)
+        layout_left_scrollarea.setWidget(layout_left_widget)
+        layout_left_scrollarea.setWidgetResizable(True)
+        layout_middle.addWidget(layout_left_scrollarea)
 
         # Center (VM Management)
 
+        layout_center_scrollarea = QScrollArea()
+        layout_center_scrollarea.setMinimumWidth(400)
         layout_center_widget = QWidget()
-        layout_center_widget.setMinimumWidth(400)
         layout_center_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         layout_center = QVBoxLayout(layout_center_widget)
         layout_center.addWidget(
             QLabel("Virtual Machine Management", alignment=Qt.AlignmentFlag.AlignCenter)
-            )
-        layout_middle.addWidget(layout_center_widget)
+        )
+        layout_center_scrollarea.setWidget(layout_center_widget)
+        layout_center_scrollarea.setWidgetResizable(True)
+        layout_middle.addWidget(layout_center_scrollarea)
 
         # Right (VM Sizes)
 
@@ -380,12 +347,11 @@ class MainWindow(QMainWindow):
             get_machines = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(get_machines)
             vms_str = get_machines.get_machines(
-                self.settings["local_vms_path"], self.settings["vm_ext"]
+                self.settings["local_vms_path"], self.settings["vm_ext"], self.settings["vm_hashfile_path"]
             )
             for line in vms_str.splitlines():
-                size, name = line.split(" ", 1)
-                icon = self.get_icon(name, self.settings["local_vms_path"], icons_dict)
-                self.vms.append(VirtualMachine(name, local_size=int(size), icon=icon))
+                md5_hash, size, path = line.split(" ", 2)
+                self.vms.append(VirtualMachine(path, self.get_icon(os.path.basename(path), self.settings["local_vms_path"], icons_dict), local_size=int(size), local_md5=md5_hash))
 
             # Connect to Server
 
@@ -400,20 +366,21 @@ class MainWindow(QMainWindow):
 
                 stdout = self.ssh_exec_command(
                     f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
-                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\""
+                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" \"{self.settings["vm_hashfile_path"]}\""
                 )
 
                 for line in stdout.splitlines():
-                    size, name = line.split(" ", 1)
+                    md5_hash, size, path = line.split(" ", 1)
+                    name = os.path.basename(path)
                     found_vm = False
                     for vm in self.vms:
                         if vm.name == name:
                             vm.server_size = int(size)
+                            vm.server_md5 = md5_hash
                             found_vm = True
                             break
                     if not found_vm:
-                        icon = self.get_icon(name, self.settings["server_vms_path"], icons_dict)
-                        self.vms.append(VirtualMachine(name, server_size=int(size), icon=icon))
+                        self.vms.append(VirtualMachine(path, self.get_icon(name, self.settings["server_vms_path"], icons_dict), server_size=int(size), local_md5=md5_hash))
 
                 self.ssh.close()
 
@@ -421,28 +388,31 @@ class MainWindow(QMainWindow):
 
             for vm in self.vms:
 
-                vm_frame = QFrame()
-                layout_back = QVBoxLayout(vm_frame)
+                vm_widget = QWidget()
+                vm_widget.setObjectName("vm_widget")
+                vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
+                vm_layout_back = QVBoxLayout(vm_widget)
 
-                # Name
+                # Top
 
-                layout_back.addWidget(QLabel(vm.name))
+                vm_layout_top = QHBoxLayout()
+                vm_layout_top.addWidget(QLabel(vm.name))
+                vm_layout_top.addWidget(QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote"))
+                vm_layout_back.addLayout(vm_layout_top)
 
-                layout_bottom = QHBoxLayout()
+                # Bottom
 
-                # Local VM
+                vm_layout_bottom = QHBoxLayout()
 
-                layout_bottom.addWidget(VirtualMachineWidget(vm, True), alignment=Qt.AlignmentFlag.AlignLeft)
+                pixmap = QPixmap(f"{PATH_ICONS}/{vm.icon}")
+                pixmap_scaled = pixmap.scaled(100, 100)
+                icon_label = QLabel()
+                icon_label.setPixmap(pixmap_scaled)
+                vm_layout_bottom.addWidget(icon_label)
 
-                # Status
+                vm_layout_back.addLayout(vm_layout_bottom)
 
-                # Server VM
-
-                layout_bottom.addWidget(VirtualMachineWidget(vm, False), alignment=Qt.AlignmentFlag.AlignRight)
-
-                layout_back.addLayout(layout_bottom)
-
-                layout_center.addWidget(vm_frame)
+                layout_center.addWidget(vm_widget)
 
     # Functions
 
@@ -495,7 +465,8 @@ class MainWindow(QMainWindow):
         for setting in (
             "ssh_auth_type", "ssh_key_path", "ssh_key_type", "ssh_key_encrypted",
             "save_ssh_password", "save_ssh_key_password",
-            "server_hostname", "server_username", "local_vms_path", "server_vms_path", "vm_ext"
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
+            "vm_ext", "vm_hashfile_path"
         ):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
@@ -605,9 +576,9 @@ class MainWindow(QMainWindow):
 
         # Check Saved Icons
 
-        icon = icons_dict[name] if name in icons_dict.keys() else None
+        icon = icons_dict[name] if name in icons_dict.keys() else "unknown"
 
-        if icon is None:
+        if icon == "unknown":
 
             # Search Function
 
@@ -616,7 +587,7 @@ class MainWindow(QMainWindow):
                 for key in ICON_NAMES.keys():
                     found = False
                     for assoc_name in ICON_NAMES[key]:
-                        if assoc_name in name.lower():
+                        if assoc_name in target.lower():
                             icon = key
                             found = True
                             break
@@ -627,7 +598,7 @@ class MainWindow(QMainWindow):
 
             search_icon_names(name)
 
-            if icon is None:
+            if icon == "unknown":
 
                 # Look for OS Type
 
@@ -654,10 +625,10 @@ class MainWindow(QMainWindow):
 # Functions
 
 def format_size(size):
-    suffixes = {"B", "kiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+    suffixes = ("B", "kiB", "MiB", "GiB", "TiB", "PiB", "EiB")
     exp = 0
     while (size >= pow(1024, exp + 1)):
-        ++exp
+        exp += 1
     return str(round(size / pow(1024, exp), 1)) + suffixes[exp]
 
 
