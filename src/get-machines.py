@@ -29,8 +29,9 @@ def get_machines(path_vms, vm_ext, vm_hashfile_path):
     return output.strip()
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         sys.exit(1)
     path_vms = sys.argv[1]
     vm_ext = sys.argv[2]
-    print(get_machines(path_vms, vm_ext), end="")
+    vm_hashfile_path = sys.argv[3]
+    print(get_machines(path_vms, vm_ext, vm_hashfile_path), end="")

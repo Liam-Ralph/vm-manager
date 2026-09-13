@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -42,8 +44,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QPalette, QPixmap
 
 
 # Global Variables
@@ -145,7 +147,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon)
         self.showMaximized()
         self.setMinimumSize(800, 550)
-        self.setStyleSheet("QScrollArea { border: none; }")
+        self.setStyleSheet("QScrollArea { border: none; } QListWidget { border: none; }")
 
         # Create Window
 
@@ -284,19 +286,30 @@ class MainWindow(QMainWindow):
 
         # Center (VM Management)
 
-        layout_center_scrollarea = QScrollArea()
-        layout_center_scrollarea.setMinimumWidth(400)
         layout_center_widget = QWidget()
-        layout_center_widget.setSizePolicy(
+
+        layout_center = QVBoxLayout(layout_center_widget)
+
+        layout_center.addWidget(
+            QLabel("Virtual Machine Management"), alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
+        layout_center_listwidget = QListWidget()
+        layout_center_listwidget.setMinimumWidth(400)
+        layout_center_listwidget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout_center = QVBoxLayout(layout_center_widget)
-        layout_center.addWidget(
-            QLabel("Virtual Machine Management", alignment=Qt.AlignmentFlag.AlignCenter)
-        )
-        layout_center_scrollarea.setWidget(layout_center_widget)
-        layout_center_scrollarea.setWidgetResizable(True)
-        layout_middle.addWidget(layout_center_scrollarea)
+        layout_center_listwidget.viewport().setBackgroundRole(QPalette.Window)
+        layout_center_listwidget.setFlow(QListWidget.Flow.LeftToRight)
+        layout_center_listwidget.setWrapping(True)
+        layout_center_listwidget.setMovement(QListWidget.Movement.Static)
+        layout_center_listwidget.setResizeMode(QListWidget.ResizeMode.Adjust)
+        layout_center_listwidget.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        layout_center_listwidget.setSpacing(5)
+        layout_center.addWidget(layout_center_listwidget)
+
+        layout_middle.addWidget(layout_center_widget)
 
         # Right (VM Sizes)
 
@@ -370,7 +383,7 @@ class MainWindow(QMainWindow):
                 )
 
                 for line in stdout.splitlines():
-                    md5_hash, size, path = line.split(" ", 1)
+                    md5_hash, size, path = line.decode().split(" ", 2)
                     name = os.path.basename(path)
                     found_vm = False
                     for vm in self.vms:
@@ -388,7 +401,8 @@ class MainWindow(QMainWindow):
 
             for vm in self.vms:
 
-                vm_widget = QWidget()
+                vm_widget = QWidget(layout_center_listwidget)
+                vm_widget.setFixedWidth(400)
                 vm_widget.setObjectName("vm_widget")
                 vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
                 vm_layout_back = QVBoxLayout(vm_widget)
@@ -396,13 +410,18 @@ class MainWindow(QMainWindow):
                 # Top
 
                 vm_layout_top = QHBoxLayout()
+
                 vm_layout_top.addWidget(QLabel(vm.name))
+
                 vm_layout_top.addWidget(QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote"))
+
                 vm_layout_back.addLayout(vm_layout_top)
 
                 # Bottom
 
                 vm_layout_bottom = QHBoxLayout()
+
+                # Icon
 
                 pixmap = QPixmap(f"{PATH_ICONS}/{vm.icon}")
                 pixmap_scaled = pixmap.scaled(100, 100)
@@ -410,9 +429,45 @@ class MainWindow(QMainWindow):
                 icon_label.setPixmap(pixmap_scaled)
                 vm_layout_bottom.addWidget(icon_label)
 
+                if vm.local_size is not None:
+
+                    vm_layout_local = QVBoxLayout()
+
+                    vm_layout_local.addWidget(QLabel("Local"))
+
+                    vm_layout_local.addWidget(QLabel(format_size(vm.local_size)))
+
+                    push_button = QPushButton("Push")
+                    vm_layout_local.addWidget(push_button)
+
+                    delete_button = QPushButton("Delete")
+                    vm_layout_local.addWidget(delete_button)
+
+                    vm_layout_bottom.addLayout(vm_layout_local)
+
+                if vm.server_size is not None:
+
+                    vm_layout_server = QVBoxLayout()
+
+                    vm_layout_server.addWidget(QLabel("Server"))
+
+                    vm_layout_server.addWidget(QLabel(format_size(vm.server_size)))
+
+                    pull_button = QPushButton("Pull")
+                    vm_layout_server.addWidget(pull_button)
+
+                    delete_button = QPushButton("Delete")
+                    vm_layout_server.addWidget(delete_button)
+
+                    vm_layout_bottom.addLayout(vm_layout_server)
+
                 vm_layout_back.addLayout(vm_layout_bottom)
 
-                layout_center.addWidget(vm_widget)
+                item = QListWidgetItem()
+                item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
+                layout_center_listwidget.addItem(item)
+                item.setSizeHint(QSize(400, 150))
+                layout_center_listwidget.setItemWidget(item, vm_widget)
 
     # Functions
 
