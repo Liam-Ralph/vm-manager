@@ -290,9 +290,28 @@ class MainWindow(QMainWindow):
 
         layout_center = QVBoxLayout(layout_center_widget)
 
+        # Title
+
         layout_center.addWidget(
             QLabel("Virtual Machine Management"), alignment=Qt.AlignmentFlag.AlignCenter
         )
+
+        # Manage All Virtual Machines
+
+        layout_vm_buttons = QHBoxLayout()
+
+        push_button = QPushButton("Push All")
+        layout_vm_buttons.addWidget(push_button)
+
+        pull_button = QPushButton("Pull All")
+        layout_vm_buttons.addWidget(pull_button)
+
+        update_button = QPushButton("Update All")
+        layout_vm_buttons.addWidget(update_button)
+
+        layout_center.addLayout(layout_vm_buttons)
+
+        # Individual Machines
 
         layout_center_listwidget = QListWidget()
         layout_center_listwidget.setMinimumWidth(400)
@@ -402,7 +421,7 @@ class MainWindow(QMainWindow):
             for vm in self.vms:
 
                 vm_widget = QWidget(layout_center_listwidget)
-                vm_widget.setFixedWidth(400)
+                vm_widget.setFixedSize(400, 200)
                 vm_widget.setObjectName("vm_widget")
                 vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
                 vm_layout_back = QVBoxLayout(vm_widget)
@@ -443,6 +462,9 @@ class MainWindow(QMainWindow):
                     delete_button = QPushButton("Delete")
                     vm_layout_local.addWidget(delete_button)
 
+                    update_button = QPushButton("Update")
+                    vm_layout_local.addWidget(update_button)
+
                     vm_layout_bottom.addLayout(vm_layout_local)
 
                 if vm.server_size is not None:
@@ -459,6 +481,9 @@ class MainWindow(QMainWindow):
                     delete_button = QPushButton("Delete")
                     vm_layout_server.addWidget(delete_button)
 
+                    update_button = QPushButton("Update")
+                    vm_layout_server.addWidget(update_button)
+
                     vm_layout_bottom.addLayout(vm_layout_server)
 
                 vm_layout_back.addLayout(vm_layout_bottom)
@@ -466,7 +491,7 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem()
                 item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
                 layout_center_listwidget.addItem(item)
-                item.setSizeHint(QSize(400, 150))
+                item.setSizeHint(QSize(400, 200))
                 layout_center_listwidget.setItemWidget(item, vm_widget)
 
     # Functions
