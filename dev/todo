@@ -1,5 +1,3 @@
-rewrite with parents for self. scopes
-add load_virtual_machines to separate thread
 add infowindow
 connect settings buttons
 finish set_setting

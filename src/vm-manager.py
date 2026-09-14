@@ -126,9 +126,9 @@ class InfoWindow(QMainWindow):
 
         # Create Window
 
-        window = QWidget()
-        layout_back = QVBoxLayout(window)
-        self.setCentralWidget(window)
+        self.window = QWidget()
+        self.layout_back = QVBoxLayout(self.window)
+        self.setCentralWidget(self.window)
 
 # Main Window
 
@@ -148,18 +148,18 @@ class MainWindow(QMainWindow):
         # Setup Main Window
 
         self.setWindowTitle("VM Manager")
-        icon = QIcon()
-        icon.addFile(PATH_LOGO)
-        self.setWindowIcon(icon)
+        self.icon = QIcon()
+        self.icon.addFile(PATH_LOGO)
+        self.setWindowIcon(self.icon)
         self.showMaximized()
         self.setMinimumSize(800, 550)
         self.setStyleSheet("QScrollArea { border: none; } QListWidget { border: none; }")
 
         # Create Window
 
-        window = QWidget()
-        layout_back = QVBoxLayout(window)
-        self.setCentralWidget(window)
+        self.window = QWidget()
+        self.layout_back = QVBoxLayout(self.window)
+        self.setCentralWidget(self.window)
 
         # Load Settings
 
@@ -167,162 +167,154 @@ class MainWindow(QMainWindow):
 
         # Top
 
-        info_button = QPushButton("Info")
-        info_button.clicked.connect(self.show_info)
-        layout_back.addWidget(info_button)
-        layout_back.setAlignment(info_button, Qt.AlignmentFlag.AlignRight)
+        self.info_button = QPushButton("Info")
+        self.info_button.clicked.connect(self.show_info)
+        self.layout_back.addWidget(self.info_button, alignment=Qt.AlignmentFlag.AlignRight)
 
         # Middle
 
-        layout_middle = QHBoxLayout()
+        self.layout_middle = QHBoxLayout()
 
         # Left (Settings)
 
-        layout_left_scrollarea = QScrollArea()
-        layout_left_scrollarea.setMinimumWidth(200)
-        layout_left_scrollarea.setMaximumWidth(400)
-        layout_left_widget = QWidget()
-        layout_left = QVBoxLayout(layout_left_widget)
+        self.layout_left_scrollarea = QScrollArea()
+        self.layout_left_scrollarea.setMinimumWidth(200)
+        self.layout_left_scrollarea.setMaximumWidth(400)
+        self.layout_left_widget = QWidget()
+        self.layout_left = QVBoxLayout(self.layout_left_widget)
 
         # SSH Authentication Settings
 
-        layout_left.addWidget(QLabel("SSH Authentication"))
+        self.layout_left.addWidget(QLabel("SSH Authentication"))
 
-        ssh_auth_type_combo = QComboBox()
-        ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
-        ssh_auth_type_combo.setCurrentIndex(SSH_AUTH_TYPES.index(self.settings["ssh_auth_type"]))
-        layout_left.addWidget(ssh_auth_type_combo)
+        self.ssh_auth_type_combo = QComboBox()
+        self.ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
+        self.ssh_auth_type_combo.setCurrentIndex(SSH_AUTH_TYPES.index(self.settings["ssh_auth_type"]))
+        self.layout_left.addWidget(self.ssh_auth_type_combo)
 
-        layout_left.addWidget(QLabel("SSH Key Path"))
-        ssh_key_path_entry = QLineEdit()
-        ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
-        layout_left.addWidget(ssh_key_path_entry)
+        self.layout_left.addWidget(QLabel("SSH Key Path"))
+        self.ssh_key_path_entry = QLineEdit()
+        self.ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
+        self.layout_left.addWidget(self.ssh_key_path_entry)
 
-        ssh_key_type_combo = QComboBox()
-        ssh_key_type_combo.addItems(SSH_KEY_TYPES)
-        ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(self.settings["ssh_key_type"]))
-        layout_left.addWidget(ssh_key_type_combo)
+        self.ssh_key_type_combo = QComboBox()
+        self.ssh_key_type_combo.addItems(SSH_KEY_TYPES)
+        self.ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(self.settings["ssh_key_type"]))
+        self.layout_left.addWidget(self.ssh_key_type_combo)
 
-        ssh_key_encrypted_check = QCheckBox()
-        ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
-        layout_left.addWidget(ssh_key_encrypted_check)
+        self.ssh_key_encrypted_check = QCheckBox()
+        self.ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
+        self.layout_left.addWidget(self.ssh_key_encrypted_check)
 
-        save_ssh_password_check = QCheckBox("Save SSH Password")
-        save_ssh_password_check.setChecked(self.settings["save_ssh_password"])
-        layout_left.addWidget(save_ssh_password_check)
+        self.save_ssh_password_check = QCheckBox("Save SSH Password")
+        self.save_ssh_password_check.setChecked(self.settings["save_ssh_password"])
+        self.layout_left.addWidget(self.save_ssh_password_check)
 
         if self.settings["save_ssh_password"]:
-            save_ssh_password_button = QPushButton("Set Saved SSH Password")
+            self.save_ssh_password_button = QPushButton("Set Saved SSH Password")
             def save_ssh_password():
                 password = self.get_password("SSH Password")
                 if password is not None:
                     keyring.set_password("VM Manager", "SSH Password", password)
-            save_ssh_password_button.clicked.connect(save_ssh_password)
-            layout_left.addWidget(save_ssh_password_button)
+            self.save_ssh_password_button.clicked.connect(save_ssh_password)
+            self.layout_left.addWidget(self.save_ssh_password_button)
 
-        clear_ssh_password_button = QPushButton("Clear Saved SSH Password")
-        clear_ssh_password_button.clicked.connect(
+        self.clear_ssh_password_button = QPushButton("Clear Saved SSH Password")
+        self.clear_ssh_password_button.clicked.connect(
             lambda: keyring.delete_password("VM Manager", "SSH Password")
         )
-        layout_left.addWidget(clear_ssh_password_button)
+        self.layout_left.addWidget(self.clear_ssh_password_button)
 
-        save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
-        save_ssh_key_password_check.setChecked(self.settings["save_ssh_key_password"])
-        layout_left.addWidget(save_ssh_key_password_check)
+        self.save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
+        self.save_ssh_key_password_check.setChecked(self.settings["save_ssh_key_password"])
+        self.layout_left.addWidget(self.save_ssh_key_password_check)
 
         if self.settings["save_ssh_key_password"]:
-            save_ssh_key_password_button = QPushButton("Set Saved SSH Key Password")
+            self.save_ssh_key_password_button = QPushButton("Set Saved SSH Key Password")
             def save_ssh_key_password():
                 password = self.get_password("SSH Key Password")
                 if password is not None:
                     keyring.set_password("VM Manager", "SSH Key Password", password)
-            save_ssh_key_password_button.clicked.connect(save_ssh_key_password)
-            layout_left.addWidget(save_ssh_key_password_button)
+            self.save_ssh_key_password_button.clicked.connect(save_ssh_key_password)
+            self.layout_left.addWidget(self.save_ssh_key_password_button)
 
-        clear_ssh_key_password_button = QPushButton("Clear Saved SSH Key Password")
-        clear_ssh_key_password_button.clicked.connect(
+        self.clear_ssh_key_password_button = QPushButton("Clear Saved SSH Key Password")
+        self.clear_ssh_key_password_button.clicked.connect(
             lambda: keyring.delete_password("VM Manager", "SSH Key Password")
         )
-        layout_left.addWidget(clear_ssh_key_password_button)
+        self.layout_left.addWidget(self.clear_ssh_key_password_button)
 
         # Server Address Settings
 
-        layout_left.addSpacing(20)
-        layout_left.addWidget(QLabel("Server Address"))
+        self.layout_left.addSpacing(20)
+        self.layout_left.addWidget(QLabel("Server Address"))
 
-        layout_left.addWidget(QLabel("Server Hostname"))
-        server_hostname_entry = QLineEdit()
-        server_hostname_entry.setPlaceholderText(self.settings["server_hostname"])
-        layout_left.addWidget(server_hostname_entry)
+        self.layout_left.addWidget(QLabel("Server Hostname"))
+        self.server_hostname_entry = QLineEdit()
+        self.server_hostname_entry.setPlaceholderText(self.settings["server_hostname"])
+        self.layout_left.addWidget(self.server_hostname_entry)
 
-        layout_left.addWidget(QLabel("Server Username"))
-        server_username_entry = QLineEdit()
-        server_username_entry.setPlaceholderText(self.settings["server_username"])
-        layout_left.addWidget(server_username_entry)
+        self.layout_left.addWidget(QLabel("Server Username"))
+        self.server_username_entry = QLineEdit()
+        self.server_username_entry.setPlaceholderText(self.settings["server_username"])
+        self.layout_left.addWidget(self.server_username_entry)
 
         # Virtual Machines Settings
 
-        layout_left.addSpacing(20)
-        layout_left.addWidget(QLabel("Virtual Machines"))
+        self.layout_left.addSpacing(20)
+        self.layout_left.addWidget(QLabel("Virtual Machines"))
 
-        layout_left.addWidget(QLabel("Local VMs Path"))
-        local_vms_path_entry = QLineEdit()
-        local_vms_path_entry.setPlaceholderText(self.settings["local_vms_path"])
-        layout_left.addWidget(local_vms_path_entry)
+        self.layout_left.addWidget(QLabel("Local VMs Path"))
+        self.local_vms_path_entry = QLineEdit()
+        self.local_vms_path_entry.setPlaceholderText(self.settings["local_vms_path"])
+        self.layout_left.addWidget(self.local_vms_path_entry)
 
-        layout_left.addWidget(QLabel("Server VMs Path"))
-        server_vms_path_entry = QLineEdit()
-        server_vms_path_entry.setPlaceholderText(self.settings["server_vms_path"])
-        layout_left.addWidget(server_vms_path_entry)
+        self.layout_left.addWidget(QLabel("Server VMs Path"))
+        self.server_vms_path_entry = QLineEdit()
+        self.server_vms_path_entry.setPlaceholderText(self.settings["server_vms_path"])
+        self.layout_left.addWidget(self.server_vms_path_entry)
 
-        layout_left.addWidget(QLabel("VM Extension"))
-        vm_ext_entry = QLineEdit()
-        vm_ext_entry.setPlaceholderText(self.settings["vm_ext"])
-        layout_left.addWidget(vm_ext_entry)
+        self.layout_left.addWidget(QLabel("VM Extension"))
+        self.vm_ext_entry = QLineEdit()
+        self.vm_ext_entry.setPlaceholderText(self.settings["vm_ext"])
+        self.layout_left.addWidget(self.vm_ext_entry)
 
-        layout_left.addWidget(QLabel("VM Hashfile Path"))
-        vm_hashfile_path_entry = QLineEdit()
-        vm_hashfile_path_entry.setPlaceholderText(self.settings["vm_hashfile_path"])
-        layout_left.addWidget(vm_hashfile_path_entry)
+        self.layout_left.addWidget(QLabel("VM Hashfile Path"))
+        self.vm_hashfile_path_entry = QLineEdit()
+        self.vm_hashfile_path_entry.setPlaceholderText(self.settings["vm_hashfile_path"])
+        self.layout_left.addWidget(self.vm_hashfile_path_entry)
 
-        layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout_left_scrollarea.setWidget(layout_left_widget)
-        layout_left_scrollarea.setWidgetResizable(True)
-        layout_middle.addWidget(layout_left_scrollarea)
+        self.layout_left.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.layout_left_scrollarea.setWidget(self.layout_left_widget)
+        self.layout_left_scrollarea.setWidgetResizable(True)
+        self.layout_middle.addWidget(self.layout_left_scrollarea)
 
         # Center (VM Management)
 
-        layout_center_widget = QWidget()
+        self.layout_center_widget = QWidget()
 
-        layout_center = QVBoxLayout(layout_center_widget)
+        self.layout_center = QVBoxLayout(self.layout_center_widget)
 
         # Title
 
-        layout_center.addWidget(
+        self.layout_center.addWidget(
             QLabel("Virtual Machine Management"), alignment=Qt.AlignmentFlag.AlignCenter
         )
 
         # Manage All Virtual Machines
 
-        layout_vm_buttons = QHBoxLayout()
+        self.layout_vm_buttons = QHBoxLayout()
 
-        push_button = QPushButton("Push All")
-        layout_vm_buttons.addWidget(push_button)
+        self.push_all_button = QPushButton("Push All")
+        self.layout_vm_buttons.addWidget(self.push_all_button)
 
-        pull_button = QPushButton("Pull All")
-        layout_vm_buttons.addWidget(pull_button)
+        self.pull_all_button = QPushButton("Pull All")
+        self.layout_vm_buttons.addWidget(self.pull_all_button)
 
-        update_button = QPushButton("Update All")
-        layout_vm_buttons.addWidget(update_button)
+        self.update_all_button = QPushButton("Update All")
+        self.layout_vm_buttons.addWidget(self.update_all_button)
 
-        # Load Virtual Machines
-
-        load_button = QPushButton("Load Virtual Machines")
-        load_button.setFixedWidth(300)
-        load_button.clicked.connect(self.load_virtual_machines)
-        layout_center.addWidget(load_button, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        layout_center.addLayout(layout_vm_buttons)
+        self.layout_center.addLayout(self.layout_vm_buttons)
 
         # Individual Machines
 
@@ -340,29 +332,29 @@ class MainWindow(QMainWindow):
         self.layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.layout_center_listwidget.setSpacing(5)
         self.add_vm_signal.connect(self.add_vm)
-        layout_center.addWidget(self.layout_center_listwidget)
+        self.layout_center.addWidget(self.layout_center_listwidget)
 
-        layout_middle.addWidget(layout_center_widget)
+        self.layout_middle.addWidget(self.layout_center_widget)
 
         # Right (VM Sizes)
 
-        layout_right_widget = QWidget()
-        layout_right_widget.setMinimumWidth(200)
-        layout_right_widget.setMaximumWidth(500)
-        layout_right = QVBoxLayout(layout_right_widget)
-        layout_right.addWidget(
+        self.layout_right_widget = QWidget()
+        self.layout_right_widget.setMinimumWidth(200)
+        self.layout_right_widget.setMaximumWidth(500)
+        self.layout_right = QVBoxLayout(self.layout_right_widget)
+        self.layout_right.addWidget(
             QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
         )
-        layout_middle.addWidget(layout_right_widget)
+        self.layout_middle.addWidget(self.layout_right_widget)
 
-        layout_back.addLayout(layout_middle)
+        self.layout_back.addLayout(self.layout_middle)
 
         # Bottom
 
         self.message_label = QLabel()
         self.message_signal.connect(self.message_label.setText)
-        layout_back.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
+        self.layout_back.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
 
     # Functions
 
@@ -371,15 +363,15 @@ class MainWindow(QMainWindow):
         # Load Virtual Machines
 
         missing_setting = False
-        if (
-            self.settings["server_hostname"] == "" or self.settings["server_username"] == "" or
-            self.settings["local_vms_path"] == "" or self.settings["server_vms_path"] == "" or
-            self.settings["vm_ext"] == "" or self.settings["vm_hashfile_path"] == ""
-        ):
-            self.message_signal.emit(f"Couldn't read virtual machines, missing required setting(s).")
-            missing_setting = True
+        missing_settings = []
+        for setting in ("server_hostname", "server_username", "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"):
+            if setting not in self.settings.keys():
+                missing_settings.append(setting)
+                missing_setting = True
 
-        if not missing_setting:
+        if missing_setting:
+            self.message_signal.emit("Missing settings: " + ", ".join(missing_settings))
+        else:
 
             # Load Virtual Machines Config
 
@@ -739,6 +731,7 @@ def main():
     app = QApplication()
     window = MainWindow()
     window.show()
+    window.load_virtual_machines()
     app.exec()
 
 
