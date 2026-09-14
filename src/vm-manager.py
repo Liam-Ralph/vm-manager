@@ -91,6 +91,8 @@ ICON_NAMES = {
 
 }
 
+icons_dict = {}
+
 
 # Classes
 
@@ -98,7 +100,9 @@ ICON_NAMES = {
 
 class VirtualMachine:
 
-    def __init__(self, path, icon, local_size = None, server_size = None, local_md5 = None, server_md5 = None):
+    def __init__(
+        self, path, icon, local_size = None, server_size = None, local_md5 = None, server_md5 = None
+    ):
         self.name = os.path.basename(path)
         self.path = path
         self.icon = icon
@@ -189,7 +193,7 @@ class MainWindow(QMainWindow):
 
         self.ssh_auth_type_combo = QComboBox()
         self.ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
-        self.ssh_auth_type_combo.setCurrentIndex(SSH_AUTH_TYPES.index(self.settings["ssh_auth_type"]))
+        self.ssh_auth_type_combo.setCurrentText(self.settings["ssh_auth_type"])
         self.layout_left.addWidget(self.ssh_auth_type_combo)
 
         self.layout_left.addWidget(QLabel("SSH Key Path"))
@@ -199,7 +203,7 @@ class MainWindow(QMainWindow):
 
         self.ssh_key_type_combo = QComboBox()
         self.ssh_key_type_combo.addItems(SSH_KEY_TYPES)
-        self.ssh_key_type_combo.setCurrentIndex(SSH_KEY_TYPES.index(self.settings["ssh_key_type"]))
+        self.ssh_key_type_combo.setCurrentText(self.settings["ssh_key_type"])
         self.layout_left.addWidget(self.ssh_key_type_combo)
 
         self.ssh_key_encrypted_check = QCheckBox()
@@ -364,7 +368,10 @@ class MainWindow(QMainWindow):
 
         missing_setting = False
         missing_settings = []
-        for setting in ("server_hostname", "server_username", "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"):
+        for setting in (
+            "server_hostname", "server_username",
+            "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"
+        ):
             if setting not in self.settings.keys():
                 missing_settings.append(setting)
                 missing_setting = True
@@ -375,7 +382,7 @@ class MainWindow(QMainWindow):
 
             # Load Virtual Machines Config
 
-            icons_dict = {}
+            global icons_dict
             if os.path.exists(PATH_VMS_CONF):
                 with open(PATH_VMS_CONF, "r") as file:
                     for line in file:
@@ -386,15 +393,21 @@ class MainWindow(QMainWindow):
 
             self.vms = []
 
-            spec = importlib.util.spec_from_file_location("get-machines", PATH_SCRIPTS + "/get-machines.py")
+            spec = importlib.util.spec_from_file_location(
+                "get-machines", PATH_SCRIPTS + "/get-machines.py"
+            )
             get_machines = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(get_machines)
             vms_str = get_machines.get_machines(
-                self.settings["local_vms_path"], self.settings["vm_ext"], self.settings["vm_hashfile_path"]
+                self.settings["local_vms_path"], self.settings["vm_ext"],
+                self.settings["vm_hashfile_path"]
             )
             for line in vms_str.splitlines():
                 md5_hash, size, path = line.split(" ", 2)
-                self.vms.append(VirtualMachine(path, self.get_icon(os.path.basename(path), self.settings["local_vms_path"], icons_dict), local_size=int(size), local_md5=md5_hash))
+                self.vms.append(VirtualMachine(
+                    path, self.get_icon(os.path.basename(path), self.settings["local_vms_path"]),
+                    local_size=int(size), local_md5=md5_hash
+                ))
 
             # Connect to Server
 
@@ -409,7 +422,8 @@ class MainWindow(QMainWindow):
 
                 stdout = self.ssh_exec_command(
                     f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
-                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" \"{self.settings["vm_hashfile_path"]}\""
+                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" " +
+                    f"\"{self.settings["vm_hashfile_path"]}\""
                 )
 
                 for line in stdout.splitlines():
@@ -423,7 +437,10 @@ class MainWindow(QMainWindow):
                             found_vm = True
                             break
                     if not found_vm:
-                        self.vms.append(VirtualMachine(path, self.get_icon(name, self.settings["server_vms_path"], icons_dict), server_size=int(size), local_md5=md5_hash))
+                        self.vms.append(VirtualMachine(
+                            path, self.get_icon(name, self.settings["server_vms_path"]),
+                            server_size=int(size), local_md5=md5_hash
+                        ))
 
                 self.ssh.close()
 
@@ -443,7 +460,9 @@ class MainWindow(QMainWindow):
 
                 vm_layout_top.addWidget(QLabel(vm.name))
 
-                vm_layout_top.addWidget(QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote"))
+                vm_layout_top.addWidget(
+                    QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote")
+                )
 
                 vm_layout_back.addLayout(vm_layout_top)
 
@@ -645,8 +664,11 @@ class MainWindow(QMainWindow):
 
         for script in os.listdir(PATH_SCRIPTS):
             local_path = f"{PATH_SCRIPTS}/{script}"
-            server_path = f"{PATH_SERVER_SCRIPTS}/{script}".replace("~", "/home/" + self.settings["server_username"], 1)
-            if (not os.path.isfile(local_path)) or ((not RELEASE_PATHS) and script.endswith(__file__)):
+            server_path = local_path.replace("~", "/home/" + self.settings["server_username"], 1)
+            if (
+                (not os.path.isfile(local_path)) or
+                ((not RELEASE_PATHS) and script.endswith(__file__))
+            ):
                 continue
             if not self.ssh_path_found(server_path):
                 sftp.put(local_path, server_path) # broken
@@ -665,10 +687,11 @@ class MainWindow(QMainWindow):
             self.raise_ssh_error(f"Error with ssh command \"{command}\": {stderr_data}")
         return stdout.read()
 
-    def get_icon(self, name, vms_path, icons_dict):
+    def get_icon(self, name, vms_path):
 
         # Check Saved Icons
 
+        global icons_dict
         icon = icons_dict[name] if name in icons_dict.keys() else "unknown"
 
         if icon == "unknown":
