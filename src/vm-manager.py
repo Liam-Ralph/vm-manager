@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget
 )
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QPalette, QPixmap
 
 
@@ -116,6 +116,26 @@ class VirtualMachine:
             return False
         return self.local_md5 == self.server_md5
 
+# Worker
+
+class Worker(QObject):
+
+    finished = Signal()
+
+    # Constructor
+
+    def __init__(self, MainWindow):
+        self.MainWindow = MainWindow
+        super().__init__()
+
+    # Functions
+
+    def load_virtual_machines(self):
+        try:
+            self.MainWindow.load_virtual_machines()
+        finally:
+            self.finished.emit()
+
 # Info Window
 
 class InfoWindow(QMainWindow):
@@ -140,7 +160,7 @@ class MainWindow(QMainWindow):
 
     # Signals
 
-    add_vm_signal = Signal(QWidget)
+    add_vms_signal = Signal()
     message_signal = Signal(str)
 
     # Constructor
@@ -335,7 +355,7 @@ class MainWindow(QMainWindow):
         self.layout_center_listwidget.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.layout_center_listwidget.setSpacing(5)
-        self.add_vm_signal.connect(self.add_vm)
+        self.add_vms_signal.connect(self.add_vms)
         self.layout_center.addWidget(self.layout_center_listwidget)
 
         self.layout_middle.addWidget(self.layout_center_widget)
@@ -360,7 +380,28 @@ class MainWindow(QMainWindow):
         self.layout_back.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
         self.layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
 
+        self.start_load_vms()
+
+    # Destructor
+
+    def __del__(self):
+        if self.thread is not None:
+            self.thread.quit()
+            self.thread.wait()
+
     # Functions
+
+    def start_load_vms(self):
+
+        # Load Virtual Machines
+
+        self.thread = QThread()
+        self.worker = Worker(self)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.load_virtual_machines)
+        self.worker.finished.connect(self.thread.quit)
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.start()
 
     def load_virtual_machines(self):
 
@@ -444,89 +485,100 @@ class MainWindow(QMainWindow):
 
                 self.ssh.close()
 
-            # Display Virtual Machines
+            self.add_vms_signal.emit()
 
-            for vm in self.vms:
+    def add_vms(self):
 
-                vm_widget = QWidget()
-                vm_widget.setFixedSize(400, 200)
-                vm_widget.setObjectName("vm_widget")
-                vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
-                vm_layout_back = QVBoxLayout(vm_widget)
+        # Display Virtual Machines
 
-                # Top
+        for vm in self.vms:
 
-                vm_layout_top = QHBoxLayout()
+            vm_widget = QWidget()
+            vm_widget.setFixedSize(400, 200)
+            vm_widget.setObjectName("vm_widget")
+            vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
+            vm_layout_back = QVBoxLayout(vm_widget)
 
-                vm_layout_top.addWidget(QLabel(vm.name))
+            # Top
 
-                vm_layout_top.addWidget(
-                    QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote")
-                )
+            vm_layout_top = QHBoxLayout()
 
-                vm_layout_back.addLayout(vm_layout_top)
+            vm_layout_top.addWidget(QLabel(vm.name))
 
-                # Bottom
+            vm_layout_top.addWidget(
+                QLabel("Local =" + ("=" if vm.md5_match() else "/") + "= Remote")
+            )
 
-                vm_layout_bottom = QHBoxLayout()
+            vm_layout_back.addLayout(vm_layout_top)
 
-                # Icon
+            # Bottom
 
-                pixmap = QPixmap(f"{PATH_ICONS}/{vm.icon}")
-                pixmap_scaled = pixmap.scaled(100, 100)
-                icon_label = QLabel()
-                icon_label.setPixmap(pixmap_scaled)
-                vm_layout_bottom.addWidget(icon_label)
+            vm_layout_bottom = QHBoxLayout()
 
-                if vm.local_size is not None:
+            # Icon
 
-                    vm_layout_local = QVBoxLayout()
+            vm_layout_icon = QVBoxLayout()
 
-                    vm_layout_local.addWidget(QLabel("Local"))
+            pixmap = QPixmap(f"{PATH_ICONS}/{vm.icon}")
+            pixmap_scaled = pixmap.scaled(100, 100)
+            icon_label = QLabel()
+            icon_label.setPixmap(pixmap_scaled)
+            vm_layout_icon.addWidget(icon_label)
 
-                    vm_layout_local.addWidget(QLabel(format_size(vm.local_size)))
+            change_icon_button = QPushButton("Change Icon")
+            change_icon_button.setFixedWidth(100)
+            vm_layout_icon.addWidget(change_icon_button)
 
-                    push_button = QPushButton("Push")
-                    vm_layout_local.addWidget(push_button)
+            vm_layout_bottom.addLayout(vm_layout_icon)
 
-                    delete_button = QPushButton("Delete")
-                    vm_layout_local.addWidget(delete_button)
+            # Local and Server States
 
-                    update_button = QPushButton("Update")
-                    vm_layout_local.addWidget(update_button)
+            if vm.local_size is not None:
 
-                    vm_layout_bottom.addLayout(vm_layout_local)
+                vm_layout_local = QVBoxLayout()
 
-                if vm.server_size is not None:
+                vm_layout_local.addWidget(QLabel("Local"))
 
-                    vm_layout_server = QVBoxLayout()
+                vm_layout_local.addWidget(QLabel(format_size(vm.local_size)))
 
-                    vm_layout_server.addWidget(QLabel("Server"))
+                push_button = QPushButton("Push")
+                vm_layout_local.addWidget(push_button)
 
-                    vm_layout_server.addWidget(QLabel(format_size(vm.server_size)))
+                delete_button = QPushButton("Delete")
+                vm_layout_local.addWidget(delete_button)
 
-                    pull_button = QPushButton("Pull")
-                    vm_layout_server.addWidget(pull_button)
+                update_button = QPushButton("Update")
+                vm_layout_local.addWidget(update_button)
 
-                    delete_button = QPushButton("Delete")
-                    vm_layout_server.addWidget(delete_button)
+                vm_layout_bottom.addLayout(vm_layout_local)
 
-                    update_button = QPushButton("Update")
-                    vm_layout_server.addWidget(update_button)
+            if vm.server_size is not None:
 
-                    vm_layout_bottom.addLayout(vm_layout_server)
+                vm_layout_server = QVBoxLayout()
 
-                vm_layout_back.addLayout(vm_layout_bottom)
+                vm_layout_server.addWidget(QLabel("Remote"))
 
-                self.add_vm_signal.emit(vm_widget)
+                vm_layout_server.addWidget(QLabel(format_size(vm.server_size)))
 
-    def add_vm(self, vm_widget):
-        vm_widget.setParent(self.layout_center_listwidget)
-        item = QListWidgetItem()
-        item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
-        self.layout_center_listwidget.addItem(item)
-        item.setSizeHint(QSize(400, 200))
-        self.layout_center_listwidget.setItemWidget(item, vm_widget)
+                pull_button = QPushButton("Pull")
+                vm_layout_server.addWidget(pull_button)
+
+                delete_button = QPushButton("Delete")
+                vm_layout_server.addWidget(delete_button)
+
+                update_button = QPushButton("Update")
+                vm_layout_server.addWidget(update_button)
+
+                vm_layout_bottom.addLayout(vm_layout_server)
+
+            vm_layout_back.addLayout(vm_layout_bottom)
+
+            vm_widget.setParent(self.layout_center_listwidget)
+            item = QListWidgetItem()
+            item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
+            self.layout_center_listwidget.addItem(item)
+            item.setSizeHint(QSize(400, 200))
+            self.layout_center_listwidget.setItemWidget(item, vm_widget)
 
     def raise_ssh_error(self, err):
         error_message = QErrorMessage(self)
@@ -664,14 +716,14 @@ class MainWindow(QMainWindow):
 
         for script in os.listdir(PATH_SCRIPTS):
             local_path = f"{PATH_SCRIPTS}/{script}"
-            server_path = local_path.replace("~", "/home/" + self.settings["server_username"], 1)
+            server_path = f"{PATH_SERVER_SCRIPTS}/{script}".replace("~", "/home/" + self.settings["server_username"], 1)
             if (
                 (not os.path.isfile(local_path)) or
                 ((not RELEASE_PATHS) and script.endswith(__file__))
             ):
                 continue
             if not self.ssh_path_found(server_path):
-                sftp.put(local_path, server_path) # broken
+                sftp.put(local_path, server_path)
 
         sftp.close()
 
@@ -719,21 +771,24 @@ class MainWindow(QMainWindow):
                 # Look for OS Type
 
                 os_type = None
-                for path in os.listdir(vms_path + "/" + name):
-                    if path.endswith(".vbox"):
-                        with open(f"{vms_path}/{name}/{path}", "r") as file:
-                            for line in file.readlines():
-                                if line.strip().startswith("<Machine"):
-                                    for word in line.strip().split(" "):
-                                        if word.startswith("OSType="):
-                                            os_type = word[7:].lower()
-                                            break
-                                    break
-                        break
+                path = f"{vms_path}/{name}"
+                if os.path.exists(path):
+                    for path in os.listdir(path):
+                        if path.endswith(".vbox"):
+                            with open(f"{vms_path}/{name}/{path}", "r") as file:
+                                for line in file.readlines():
+                                    if line.strip().startswith("<Machine"):
+                                        for word in line.strip().split(" "):
+                                            if word.startswith("OSType="):
+                                                os_type = word[7:].lower()
+                                                break
+                                        break
+                            break
 
                 # Compare with OS Type
 
-                search_icon_names(os_type)
+                if os_type is not None:
+                    search_icon_names(os_type)
 
         return icon + ".png"
 
@@ -754,7 +809,6 @@ def main():
     app = QApplication()
     window = MainWindow()
     window.show()
-    window.load_virtual_machines()
     app.exec()
 
 
