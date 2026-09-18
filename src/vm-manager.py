@@ -130,9 +130,9 @@ class Worker(QObject):
 
     # Functions
 
-    def load_virtual_machines(self):
+    def load_vms(self):
         try:
-            self.MainWindow.load_virtual_machines()
+            self.MainWindow.load_vms()
         finally:
             self.finished.emit()
 
@@ -398,12 +398,12 @@ class MainWindow(QMainWindow):
         self.thread = QThread()
         self.worker = Worker(self)
         self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.load_virtual_machines)
+        self.thread.started.connect(self.worker.load_vms)
         self.worker.finished.connect(self.thread.quit)
         self.thread.finished.connect(self.worker.deleteLater)
         self.thread.start()
 
-    def load_virtual_machines(self):
+    def load_vms(self):
 
         # Load Virtual Machines
 
@@ -483,6 +483,7 @@ class MainWindow(QMainWindow):
                             server_size=int(size), local_md5=md5_hash
                         ))
 
+            finally:
                 self.ssh.close()
 
             self.add_vms_signal.emit()
