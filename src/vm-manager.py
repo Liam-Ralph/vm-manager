@@ -14,10 +14,12 @@
 
 # Standard Library
 
+import ctypes
 import enum
 import importlib
 import os
 import shutil
+import sys
 
 # Third Party
 
@@ -41,6 +43,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget
 )
@@ -82,7 +85,7 @@ with open(PATH_DOC + "/README.md", "r") as file:
         file.readline()
     VERSION = file.readline()[12:]
 
-SSH_AUTH_TYPES = ("Password", "Key")
+SSH_AUTH_METHODS = ("Password", "Loaded Key", "Public Key", "Private Key")
 SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
 ICON_NAMES = {
@@ -95,11 +98,7 @@ icons_dict = {}
 
 # Enums
 
-class SSH_AUTH_TYPE(enum.Enum):
-    PASSWORD = 0
-    KEY = 1
-
-class SSH_AUTH_METHOD(enum.Enum):
+class SSH_AUTH_METHOD(enum.IntEnum):
     PASSWORD = 0
     LOADED_KEY = 1
     PUBLIC_KEY = 2
@@ -133,6 +132,7 @@ class VirtualMachine:
 class Worker(QObject):
 
     finished = Signal()
+    warning = Signal(tuple)
 
     # Constructor
 
@@ -144,7 +144,17 @@ class Worker(QObject):
 
     def load_vms(self):
         try:
+            self.MainWindow.ssh_thread.wait()
             self.MainWindow.load_vms()
+        finally:
+            self.finished.emit()
+
+    def connect_ssh(self):
+        try:
+            self.MainWindow.connect_ssh()
+        except Exception as e:
+            self.warning.emit(("Error Connecting to SSH", str(e)))
+            self.MainWindow.ssh = None
         finally:
             self.finished.emit()
 
@@ -223,29 +233,26 @@ class MainWindow(QMainWindow):
 
         self.layout_left.addWidget(QLabel("SSH Authentication"))
 
-        self.ssh_auth_type_combo = QComboBox()
-        self.ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
-        self.ssh_auth_type_combo.setCurrentIndex(self.settings["ssh_auth_type"])
-        self.layout_left.addWidget(self.ssh_auth_type_combo)
-
-        self.ssh_key_loaded_check = QCheckBox("SSH Key Loaded")
-        self.ssh_key_loaded_check.setChecked(self.settings["ssh_key_loaded"])
-        self.layout_left.addWidget(self.ssh_key_loaded_check)
-
-        self.layout_left.addWidget(QLabel("SSH Key Path"))
-        self.ssh_key_path_entry = QLineEdit()
-        self.ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
-        self.layout_left.addWidget(self.ssh_key_path_entry)
-
-        self.ssh_key_private_check = QCheckBox("SSH Key Private")
-        self.ssh_key_private_check.setChecked(self.settings["ssh_key_private"])
-        self.layout_left.addWidget(self.ssh_key_private_check)
+        self.layout_left.addWidget(QLabel("SSH Authentication Method"))
+        self.ssh_auth_method_combo = QComboBox()
+        self.ssh_auth_method_combo.addItems(SSH_AUTH_METHODS)
+        self.ssh_auth_method_combo.setCurrentIndex(self.settings["ssh_auth_method"])
+        self.layout_left.addWidget(self.ssh_auth_method_combo)
 
         self.layout_left.addWidget(QLabel("SSH Key Type"))
         self.ssh_key_type_combo = QComboBox()
         self.ssh_key_type_combo.addItems(SSH_KEY_TYPES)
         self.ssh_key_type_combo.setCurrentText(self.settings["ssh_key_type"])
         self.layout_left.addWidget(self.ssh_key_type_combo)
+
+        self.layout_left.addWidget(QLabel("SSH Timeout (seconds)"))
+        self.ssh_timeout_entry = QSlider(Qt.Orientation.Horizontal)
+        self.ssh_timeout_entry.setMinimum(1)
+        self.ssh_timeout_entry.setMaximum(60)
+        self.ssh_timeout_entry.setValue(self.settings["ssh_timeout"])
+        self.layout_left.addWidget(self.ssh_timeout_entry)
+        self.ssh_timeout_label = QLabel(str(self.settings["ssh_timeout"]))
+        self.layout_left.addWidget(self.ssh_timeout_label)
 
         # Server Address Settings
 
@@ -364,26 +371,92 @@ class MainWindow(QMainWindow):
     # Destructor
 
     def __del__(self):
+
+        # Clear Password
+
+        self.clear_password()
+
+        # Close SSH
+
         try:
-            if self.thread is not None and self.thread.isRunning():
-                self.thread.quit()
-                self.thread.wait()
-        except RuntimeError:
+            if self.ssh is not None:
+                self.ssh.close()
+        except (RuntimeError, AttributeError):
+            pass
+
+        # Quit QThreads
+
+        try:
+            if self.vm_thread is not None and self.vm_thread.isRunning():
+                self.vm_thread.quit()
+                self.vm_thread.wait()
+        except (RuntimeError, AttributeError):
+            pass
+
+        try:
+            if self.ssh_thread is not None and self.ssh_thread.isRunning():
+                self.ssh_thread.quit()
+                self.ssh_thread.wait()
+        except (RuntimeError, AttributeError):
             pass
 
     # Functions
 
     def start_load_vms(self):
 
+        # Connect SSH
+
+        self.start_connect_ssh()
+
         # Load Virtual Machines
 
-        self.thread = QThread()
-        self.worker = Worker(self)
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.load_vms)
-        self.worker.finished.connect(self.thread.quit)
-        self.thread.finished.connect(self.worker.deleteLater)
-        self.thread.start()
+        self.vm_thread = QThread()
+        self.vm_worker = Worker(self)
+        self.vm_worker.moveToThread(self.vm_thread)
+        self.vm_thread.started.connect(self.vm_worker.load_vms)
+        self.vm_worker.warning.connect(self.show_warning)
+        self.vm_worker.finished.connect(self.vm_thread.quit)
+        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
+        self.vm_thread.start()
+
+    def start_connect_ssh(self):
+
+        # Get Password
+
+        self.clear_password()
+        if (
+            self.settings["ssh_auth_method"] in
+            (SSH_AUTH_METHOD.PASSWORD, SSH_AUTH_METHOD.PRIVATE_KEY)
+        ):
+            input_dialog = QInputDialog(self)
+            input_dialog.setWindowTitle(
+                "SSH " + (
+                    "Key " if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY
+                    else ""
+                ) + "Password"
+            )
+            input_dialog.setLabelText("Enter Password")
+            input_dialog.setInputMode(QInputDialog.TextInput)
+            input_dialog.setTextEchoMode(QLineEdit.Password)
+            input_dialog.resize(300, 200)
+            ok = input_dialog.exec()
+            if ok:
+                self.saved_password = input_dialog.textValue()
+            else:
+                self.saved_password = None
+        else:
+            print(self.settings["ssh_auth_method"])
+
+        # Connect SSH
+
+        self.ssh_thread = QThread()
+        self.ssh_worker = Worker(self)
+        self.ssh_worker.moveToThread(self.ssh_thread)
+        self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
+        self.ssh_worker.warning.connect(self.show_warning)
+        self.ssh_worker.finished.connect(self.ssh_thread.quit)
+        self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
+        self.ssh_thread.start()
 
     def load_vms(self):
 
@@ -397,8 +470,9 @@ class MainWindow(QMainWindow):
             if setting not in self.settings.keys():
                 missing_settings.append(setting)
         if (
-            self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.KEY and
-            (not self.settings["ssh_key_loaded"]) and self.settings["key_path"] == ""
+            self.settings["ssh_auth_method"] in
+            (SSH_AUTH_METHOD.PRIVATE_KEY, SSH_AUTH_METHOD.PUBLIC_KEY) and
+            self.settings["key_path"] == ""
         ):
             missing_settings.append("key_path")
 
@@ -437,12 +511,7 @@ class MainWindow(QMainWindow):
 
             # Connect to Server
 
-            try:
-                self.connect_ssh()
-            except Exception as e:
-                QMessageBox.warning(self, "Error Connecting to SSH", str(e))
-
-            else:
+            if self.ssh is not None:
 
                 # Get Server VMs
 
@@ -468,10 +537,19 @@ class MainWindow(QMainWindow):
                             server_size=int(size), local_md5=md5_hash
                         ))
 
-            finally:
-                self.ssh.close()
-
             self.add_vms_signal.emit()
+
+    def clear_password(self):
+
+        try:
+            ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
+        except AttributeError:
+            pass
+        self.saved_password = None
+
+    def show_warning(self, warning_str):
+
+        QMessageBox.warning(self, warning_str[0], warning_str[1])
 
     def add_vms(self):
 
@@ -571,19 +649,6 @@ class MainWindow(QMainWindow):
         error_message.showMessage(err)
         raise ValueError(err)
 
-    def get_password(self, title):
-        input_dialog = QInputDialog(self)
-        input_dialog.setWindowTitle(title)
-        input_dialog.setLabelText("Enter Password")
-        input_dialog.setInputMode(QInputDialog.TextInput)
-        input_dialog.setTextEchoMode(QLineEdit.Password)
-        input_dialog.resize(300, 200)
-        ok = input_dialog.exec()
-        password = input_dialog.textValue()
-        if ok:
-            return password
-        return None
-
     def load_settings(self):
         """
         Load user settings from `PATH_SETTINGS`.
@@ -601,36 +666,27 @@ class MainWindow(QMainWindow):
 
         with open(PATH_SETTINGS, "r") as file:
             for line in file:
+
                 if line[0] in ("#", "\n"):
                     continue
+
                 line = line.strip()
                 if line.endswith("="):
                     self.settings[line[:-1]] = ""
                     continue
                 setting, value = line.split("=")
-                if setting == "ssh_auth_type":
-                    self.settings["ssh_auth_type"] = SSH_AUTH_TYPES.index(setting)
-                    continue
-                if value in ("True", "False"):
-                    value = (value == "True")
+
+                if setting in ("ssh_auth_method", "ssh_timeout"):
+                    value = int(value)
                 self.settings[setting] = value
 
         for setting in (
-            "ssh_auth_type", "ssh_key_loaded", "ssh_key_path", "ssh_key_private", "ssh_key_type",
+            "ssh_auth_method", "ssh_key_type", "ssh_timeout",
             "server_hostname", "server_username", "local_vms_path", "server_vms_path",
             "vm_ext", "vm_hashfile_path"
         ):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
-
-        if self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.PASSWORD:
-            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PASSWORD
-        elif self.settings["ssh_key_loaded"]:
-            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.LOADED_KEY
-        elif self.settings["ssh_key_private"]:
-            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PRIVATE_KEY
-        else:
-            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PUBLIC_KEY
 
     def set_setting(self, setting, value):
         """
@@ -660,49 +716,49 @@ class MainWindow(QMainWindow):
 
         self.ssh = paramiko.SSHClient()
 
+        password = None
+        pkey = None
+
         # Password Connection
 
-        if self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.PASSWORD:
-            password = self.get_password("SSH Password")
-            if password is None:
-                raise ValueError("Auth type is password and no password found or given.")
-            self.ssh.connect(
-                self.settings["server_hostname"], username=self.settings["server_username"],
-                password=password
-            )
+        if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PASSWORD:
+            if self.saved_password is None:
+                raise ValueError("Auth type is password and no password given.")
+            password = self.saved_password
 
         # Key Connection
 
-        elif self.settings["ssh_key_loaded"]:
+        elif self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.LOADED_KEY:
             self.ssh.load_system_host_keys()
             self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
-            self.ssh.connect(
-                self.settings["server_hostname"], username=self.settings["server_username"],
-                allow_agent=True, look_for_keys=False
-            )
 
         else:
-            if self.settings["ssh_key_private"]:
-                password = self.get_password("SSH Key Password")
-                if password is None:
-                    raise ValueError("Key private and no password found or given.")
-            else:
-                password = None
+            if (
+                self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY and
+                self.saved_password is None
+            ):
+                raise ValueError("Auth type requires password and no password given.")
             if self.settings["ssh_key_type"] == "RSA":
-                key = paramiko.RSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
+                key = paramiko.RSAKey.from_private_key_file(
+                    self.settings["ssh_key_path"], self.saved_password
+                )
             elif self.settings["ssh_key_type"] == "ECDSA":
                 key = paramiko.ECDSAKey.from_private_key_file(
-                    self.settings["ssh_key_path"], password
+                    self.settings["ssh_key_path"], self.saved_password
                 )
             else:
                 key = paramiko.Ed25519Key.from_private_key_file(
-                    self.settings["ssh_key_path"], password
+                    self.settings["ssh_key_path"], self.saved_password
                 )
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh.connect(
-                self.settings["server_hostname"], username=self.settings["server_username"],
-                pkey=key
-            )
+            pkey = key
+
+        self.ssh.connect(
+            hostname=self.settings["server_hostname"], username=self.settings["server_username"],
+            password=password, pkey=pkey,
+            timeout=self.settings["ssh_timeout"], banner_timeout=self.settings["ssh_timeout"],
+            auth_timeout=self.settings["ssh_timeout"]
+        )
 
         # Install Any Missing Scripts
 
@@ -713,7 +769,11 @@ class MainWindow(QMainWindow):
 
         for script in os.listdir(PATH_SCRIPTS):
             local_path = f"{PATH_SCRIPTS}/{script}"
-            server_path = f"{PATH_SERVER_SCRIPTS}/{script}".replace("~", "/home/" + self.settings["server_username"], 1)
+            server_path = (
+                f"{PATH_SERVER_SCRIPTS}/{script}".replace(
+                    "~", "/home/" + self.settings["server_username"], 1
+                )
+            )
             if (
                 (not os.path.isfile(local_path)) or
                 ((not RELEASE_PATHS) and script.endswith(__file__))

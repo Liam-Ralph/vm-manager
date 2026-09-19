@@ -1,8 +1,9 @@
-remake connect ssh (errors from running on another thread, keep connected)
 add infowindow
+add ssh info
 connect settings buttons
 finish set_setting
 create icons
 add tooltips
 finish icon names
 add styles to everything
+reorder functions
