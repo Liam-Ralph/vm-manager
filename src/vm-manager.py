@@ -279,6 +279,20 @@ class InfoWindow(QMainWindow):
             self.doc_viewer.setMarkdown("")
             self.doc_viewer.setText(contents)
 
+# Bar
+
+class Bar(QLabel):
+
+    def __init__(self, text, size, max_width, max_size):
+
+        super().__init__(text)
+
+        self.size = size
+
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.setWordWrap(True)
+        self.setFixedWidth(max(0, round(max_width * size / max_size) - 4))
+
 # Main Window
 
 class MainWindow(QMainWindow):
@@ -286,7 +300,7 @@ class MainWindow(QMainWindow):
     # Signals
 
     add_vms_signal = Signal()
-    message_signal = Signal(str)
+    warning_signal = Signal(str)
 
     # Constructor
 
@@ -328,7 +342,7 @@ class MainWindow(QMainWindow):
 
         self.layout_left_scrollarea = QScrollArea()
         self.layout_left_scrollarea.setMinimumWidth(200)
-        self.layout_left_scrollarea.setMaximumWidth(400)
+        self.layout_left_scrollarea.setMaximumWidth(350)
         self.layout_left_widget = QWidget()
         self.layout_left = QVBoxLayout(self.layout_left_widget)
 
@@ -451,23 +465,43 @@ class MainWindow(QMainWindow):
 
         # Right (VM Sizes)
 
-        self.layout_right_widget = QWidget()
-        self.layout_right_widget.setMinimumWidth(200)
-        self.layout_right_widget.setMaximumWidth(500)
-        self.layout_right = QVBoxLayout(self.layout_right_widget)
+        self.layout_right_widget = QScrollArea()
+        self.layout_right_widget.setWidgetResizable(True)
+        self.layout_right_widget.setMinimumWidth(300)
+        self.layout_right_widget.setMaximumWidth(400)
+        self.layout_right_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.layout_right_content = QWidget()
+        self.layout_right = QVBoxLayout(self.layout_right_content)
+        self.layout_right.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.layout_right_widget.setWidget(self.layout_right_content)
+
         self.layout_right.addWidget(
             QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
         )
+
+        # Local
+
+        self.layout_right.addWidget(QLabel("Local", alignment=Qt.AlignmentFlag.AlignCenter))
+
+        self.layout_right_local_widget = QWidget()
+        self.layout_right_local = QVBoxLayout(self.layout_right_local_widget)
+        self.layout_right.addWidget(self.layout_right_local_widget)
+
+        # Server
+
+        self.layout_right.addWidget(QLabel("Remote", alignment=Qt.AlignmentFlag.AlignCenter))
+
+        self.layout_right_server_widget = QWidget()
+        self.layout_right_server = QVBoxLayout(self.layout_right_server_widget)
+        self.layout_right.addWidget(self.layout_right_server_widget)
+
         self.layout_middle.addWidget(self.layout_right_widget)
 
         self.layout_back.addLayout(self.layout_middle)
 
-        # Bottom
-
-        self.message_label = QLabel()
-        self.message_signal.connect(self.message_label.setText)
-        self.layout_back.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.layout_back.addWidget(QLabel("v" + VERSION, alignment=Qt.AlignmentFlag.AlignRight))
+        self.warning_signal.connect(self.show_warning)
 
         self.start_load_vms()
 
@@ -578,7 +612,7 @@ class MainWindow(QMainWindow):
             missing_settings.append("key_path")
 
         if len(missing_settings) > 0:
-            self.message_signal.emit("Missing settings: " + ", ".join(missing_settings))
+            self.warning_signal.emit("Missing settings: " + ", ".join(missing_settings))
         else:
 
             # Load Virtual Machines Config
@@ -638,6 +672,8 @@ class MainWindow(QMainWindow):
                             server_size=int(size), local_md5=md5_hash
                         ))
 
+            self.vms = sorted(self.vms, key=lambda vm: vm.name.lower())
+
             self.add_vms_signal.emit()
 
     def clear_password(self):
@@ -654,12 +690,39 @@ class MainWindow(QMainWindow):
 
     def add_vms(self):
 
+        # Set Sizes Bar Colors
+
+        self.layout_right_local_widget.setStyleSheet(
+            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
+        )
+        self.layout_right_server_widget.setStyleSheet(
+            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
+        )
+
+        # Get Virtual Machine Maximum Size
+
+        max_width = self.layout_right_local_widget.width() - 20
+        max_size = 1
+        for vm in self.vms:
+            if vm.local_size is not None and vm.local_size > max_size:
+                max_size = vm.local_size
+            if vm.server_size is not None and vm.server_size > max_size:
+                max_size = vm.server_size
+        size_ratio = max_width / max_size
+
+        # Size Widget Lists
+
+        local_bars = []
+        server_bars = []
+
         # Display Virtual Machines
 
         for vm in self.vms:
 
+            # Add to Center ListWidget
+
             vm_widget = QWidget()
-            vm_widget.setFixedSize(400, 200)
+            vm_widget.setFixedSize(350, 200)
             vm_widget.setObjectName("vm_widget")
             vm_widget.setStyleSheet("QWidget#vm_widget { border: 2px solid; }")
             vm_layout_back = QVBoxLayout(vm_widget)
@@ -738,12 +801,39 @@ class MainWindow(QMainWindow):
 
             vm_layout_back.addLayout(vm_layout_bottom)
 
+            # Add Widget to ListWidget
+
             vm_widget.setParent(self.layout_center_listwidget)
             item = QListWidgetItem()
             item.setFlags(item.flags() & ~(Qt.ItemIsSelectable|Qt.ItemIsEnabled))
             self.layout_center_listwidget.addItem(item)
-            item.setSizeHint(QSize(400, 200))
+            item.setSizeHint(QSize(350, 200))
             self.layout_center_listwidget.setItemWidget(item, vm_widget)
+
+            # Add To Virtual Machine Sizes
+
+            # Local
+
+            if vm.local_size is not None:
+                local_bars.append(Bar(
+                    f"{vm.name}\n{format_size(vm.local_size)}",
+                    vm.local_size, max_width, max_size
+                ))
+
+            # Server
+
+            if vm.server_size is not None:
+                server_bars.append(Bar(
+                    f"{vm.name}\n{format_size(vm.server_size)}",
+                    vm.server_size, max_width, max_size
+                ))
+
+        # Sort and Add Bars
+
+        for bar in sorted(local_bars, key=lambda b: b.size, reverse=True):
+            self.layout_right_local.addWidget(bar)
+        for bar in sorted(server_bars, key=lambda b: b.size, reverse=True):
+            self.layout_right_server.addWidget(bar)
 
     def raise_ssh_error(self, err):
         error_message = QErrorMessage(self)
@@ -958,7 +1048,7 @@ def format_size(size):
     exp = 0
     while (size >= pow(1024, exp + 1)):
         exp += 1
-    return str(round(size / pow(1024, exp), 1)) + suffixes[exp]
+    return str(round(size / pow(1024, exp), 2)) + " " + suffixes[exp]
 
 
 # Main Function
