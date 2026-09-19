@@ -29,7 +29,6 @@ import paramiko
 
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QErrorMessage,
     QHBoxLayout,
@@ -44,6 +43,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QTextBrowser,
     QVBoxLayout,
     QWidget
 )
@@ -78,6 +78,8 @@ else:
     PATH_SCRIPTS = os.path.abspath("src")
     PATH_ICONS = os.path.abspath("icons")
 
+PATH_README = PATH_DOC + "/README.md"
+PATH_LICENSE = PATH_DOC + "/LICENSE"
 PATH_SERVER_SCRIPTS = "~/.local/share/vm-manager"
 
 with open(PATH_DOC + "/README.md", "r") as file:
@@ -162,6 +164,19 @@ class Worker(QObject):
 
 class InfoWindow(QMainWindow):
 
+    # Class Variables
+
+    def get_project_info():
+        with open(PATH_README, "r") as file:
+            return (
+                file.readline()[2:] + "\n" + 
+                file.readline()[3:] + "\n" +
+                file.readline()[3:]
+            )
+    project_info = get_project_info()
+
+    # Constructor
+
     def __init__(self, parent):
 
         super().__init__(parent)
@@ -175,6 +190,94 @@ class InfoWindow(QMainWindow):
         self.window = QWidget()
         self.layout_back = QVBoxLayout(self.window)
         self.setCentralWidget(self.window)
+
+        # Project Info
+
+        self.project_info_label = QLabel(self.project_info)
+        self.project_info_label.setWordWrap(True)
+        self.project_info_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.project_info_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.layout_back.addWidget(self.project_info_label)
+
+        # License
+
+        self.license_title = QLabel("License")
+        self.license_title.font().setUnderline(True)
+        self.license_title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.layout_back.addWidget(self.license_title)
+
+        self.license_label = QLabel(
+            "This project is licensed under the MIT/Expat License.<br>" +
+            "This license can be found in the following locations:<br>" +
+            f"<a href=\"{PATH_LICENSE}\">Local Copy</a><br>" +
+            # May fail to open if PATH_LICENSE contains a space
+            "<a href=\"https://github.com/liam-ralph/vm-manager/blob/main/LICENSE\">" +
+            "GitHub Repo (Official)</a><br>" +
+            "<a href=\"https://mit-license.org/\">MIT License Website</a><br>"
+        )
+        self.license_label.setTextFormat(Qt.TextFormat.RichText)
+        self.license_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.license_label.setOpenExternalLinks(True)
+        self.license_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.layout_back.addWidget(self.license_label)
+
+        # Doc Viewer
+
+        layout_buttons = QHBoxLayout()
+
+        self.view_readme = QPushButton("View README.md")
+        self.view_readme.setObjectName("view_readme")
+        self.view_readme.clicked.connect(self.open_doc)
+        layout_buttons.addWidget(self.view_readme)
+
+        self.view_changelog = QPushButton("View CHANGELOG.md")
+        self.view_changelog.setObjectName("view_changelog")
+        self.view_changelog.clicked.connect(self.open_doc)
+        layout_buttons.addWidget(self.view_changelog)
+
+        self.view_license = QPushButton("View LICENSE")
+        self.view_license.setObjectName("view_license")
+        self.view_license.clicked.connect(self.open_doc)
+        layout_buttons.addWidget(self.view_license)
+
+        self.layout_back.addLayout(layout_buttons)
+
+        self.doc_viewer = QTextBrowser()
+        self.doc_viewer.setReadOnly(True)
+        self.doc_viewer.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.doc_viewer.setOpenExternalLinks(True)
+        self.doc_viewer.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.layout_back.addWidget(self.doc_viewer)
+
+    # Functions
+
+    def open_doc(self):
+
+        self.showMaximized()
+
+        button = self.sender()
+        contents = ""
+
+        # Read and Display Documentation File
+
+        if button.objectName() == "view_readme":
+            with open(PATH_README, "r") as file:
+                contents = file.read()
+            self.doc_viewer.setMarkdown(contents)
+        elif button.objectName() == "view_changelog":
+            with open(os.path.join(PATH_DOC, "CHANGELOG.md"), "r") as file:
+                contents = file.read()
+            self.doc_viewer.setMarkdown(contents)
+        elif button.objectName() == "view_license":
+            with open(PATH_LICENSE, "r") as file:
+                contents = file.read()
+            self.doc_viewer.setMarkdown("")
+            self.doc_viewer.setText(contents)
 
 # Main Window
 
@@ -444,8 +547,6 @@ class MainWindow(QMainWindow):
                 self.saved_password = input_dialog.textValue()
             else:
                 self.saved_password = None
-        else:
-            print(self.settings["ssh_auth_method"])
 
         # Connect SSH
 
