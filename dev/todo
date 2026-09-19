@@ -1,3 +1,4 @@
+remake connect ssh (errors from running on another thread, keep connected)
 add infowindow
 connect settings buttons
 finish set_setting

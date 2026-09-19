@@ -21,7 +21,6 @@ import threading
 
 # Third Party
 
-import keyring
 import paramiko
 
 # PySide6
@@ -216,57 +215,24 @@ class MainWindow(QMainWindow):
         self.ssh_auth_type_combo.setCurrentText(self.settings["ssh_auth_type"])
         self.layout_left.addWidget(self.ssh_auth_type_combo)
 
+        self.ssh_key_loaded_check = QCheckBox("SSH Key Loaded")
+        self.ssh_key_loaded_check.setChecked(self.settings["ssh_key_loaded"])
+        self.layout_left.addWidget(self.ssh_key_loaded_check)
+
         self.layout_left.addWidget(QLabel("SSH Key Path"))
         self.ssh_key_path_entry = QLineEdit()
         self.ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
         self.layout_left.addWidget(self.ssh_key_path_entry)
 
+        self.ssh_key_encrypted_check = QCheckBox("SSH Key Encrypted")
+        self.ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
+        self.layout_left.addWidget(self.ssh_key_encrypted_check)
+
+        self.layout_left.addWidget(QLabel("SSH Key Type"))
         self.ssh_key_type_combo = QComboBox()
         self.ssh_key_type_combo.addItems(SSH_KEY_TYPES)
         self.ssh_key_type_combo.setCurrentText(self.settings["ssh_key_type"])
         self.layout_left.addWidget(self.ssh_key_type_combo)
-
-        self.ssh_key_encrypted_check = QCheckBox()
-        self.ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
-        self.layout_left.addWidget(self.ssh_key_encrypted_check)
-
-        self.save_ssh_password_check = QCheckBox("Save SSH Password")
-        self.save_ssh_password_check.setChecked(self.settings["save_ssh_password"])
-        self.layout_left.addWidget(self.save_ssh_password_check)
-
-        if self.settings["save_ssh_password"]:
-            self.save_ssh_password_button = QPushButton("Set Saved SSH Password")
-            def save_ssh_password():
-                password = self.get_password("SSH Password")
-                if password is not None:
-                    keyring.set_password("VM Manager", "SSH Password", password)
-            self.save_ssh_password_button.clicked.connect(save_ssh_password)
-            self.layout_left.addWidget(self.save_ssh_password_button)
-
-        self.clear_ssh_password_button = QPushButton("Clear Saved SSH Password")
-        self.clear_ssh_password_button.clicked.connect(
-            lambda: keyring.delete_password("VM Manager", "SSH Password")
-        )
-        self.layout_left.addWidget(self.clear_ssh_password_button)
-
-        self.save_ssh_key_password_check = QCheckBox("Save SSH Key Password")
-        self.save_ssh_key_password_check.setChecked(self.settings["save_ssh_key_password"])
-        self.layout_left.addWidget(self.save_ssh_key_password_check)
-
-        if self.settings["save_ssh_key_password"]:
-            self.save_ssh_key_password_button = QPushButton("Set Saved SSH Key Password")
-            def save_ssh_key_password():
-                password = self.get_password("SSH Key Password")
-                if password is not None:
-                    keyring.set_password("VM Manager", "SSH Key Password", password)
-            self.save_ssh_key_password_button.clicked.connect(save_ssh_key_password)
-            self.layout_left.addWidget(self.save_ssh_key_password_button)
-
-        self.clear_ssh_key_password_button = QPushButton("Clear Saved SSH Key Password")
-        self.clear_ssh_key_password_button.clicked.connect(
-            lambda: keyring.delete_password("VM Manager", "SSH Key Password")
-        )
-        self.layout_left.addWidget(self.clear_ssh_key_password_button)
 
         # Server Address Settings
 
@@ -385,9 +351,12 @@ class MainWindow(QMainWindow):
     # Destructor
 
     def __del__(self):
-        if self.thread is not None:
-            self.thread.quit()
-            self.thread.wait()
+        try:
+            if self.thread is not None and self.thread.isRunning():
+                self.thread.quit()
+                self.thread.wait()
+        except RuntimeError:
+            pass
 
     # Functions
 
@@ -407,7 +376,6 @@ class MainWindow(QMainWindow):
 
         # Load Virtual Machines
 
-        missing_setting = False
         missing_settings = []
         for setting in (
             "server_hostname", "server_username",
@@ -415,9 +383,13 @@ class MainWindow(QMainWindow):
         ):
             if setting not in self.settings.keys():
                 missing_settings.append(setting)
-                missing_setting = True
+        if (
+            self.settings["ssh_auth_type"] == "Key" and (not self.settings["ssh_key_loaded"]) and
+            self.settings["key_path"] == ""
+        ):
+            missing_settings.append("key_path")
 
-        if missing_setting:
+        if len(missing_settings) > 0:
             self.message_signal.emit("Missing settings: " + ", ".join(missing_settings))
         else:
 
@@ -587,7 +559,7 @@ class MainWindow(QMainWindow):
         raise ValueError(err)
 
     def get_password(self, title):
-        input_dialog = QInputDialog()
+        input_dialog = QInputDialog(self)
         input_dialog.setWindowTitle(title)
         input_dialog.setLabelText("Enter Password")
         input_dialog.setInputMode(QInputDialog.TextInput)
@@ -628,8 +600,7 @@ class MainWindow(QMainWindow):
                 self.settings[setting] = value
 
         for setting in (
-            "ssh_auth_type", "ssh_key_path", "ssh_key_type", "ssh_key_encrypted",
-            "save_ssh_password", "save_ssh_key_password",
+            "ssh_auth_type", "ssh_key_loaded", "ssh_key_path", "ssh_key_encrypted", "ssh_key_type",
             "server_hostname", "server_username", "local_vms_path", "server_vms_path",
             "vm_ext", "vm_hashfile_path"
         ):
@@ -667,13 +638,9 @@ class MainWindow(QMainWindow):
         # Password Connection
 
         if self.settings["ssh_auth_type"] == "Password":
-            password = None
-            if self.settings["save_ssh_password"]:
-                password = keyring.get_password("VM Manager", "SSH Password")
+            password = self.get_password("SSH Password")
             if password is None:
-                password = self.get_password("SSH Password")
-                if password is None:
-                    raise ValueError("Auth type is password and no password found or given.")
+                raise ValueError("Auth type is password and no password found or given.")
             self.ssh.connect(
                 self.settings["server_hostname"], username=self.settings["server_username"],
                 password=password
@@ -681,17 +648,21 @@ class MainWindow(QMainWindow):
 
         # Key Connection
 
+        elif self.settings["ssh_key_loaded"]:
+            self.ssh.load_system_host_keys()
+            self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+            self.ssh.connect(
+                self.settings["server_hostname"], username=self.settings["server_username"],
+                allow_agent=True, look_for_keys=False
+            )
+
         else:
-
-            password = None
             if self.settings["ssh_key_encrypted"]:
-                if self.settings["save_ssh_key_password"]:
-                    password = keyring.get_password("VM Manager", "SSH Key Password")
+                password = self.get_password("SSH Key Password")
                 if password is None:
-                    password = self.get_password("SSH Key Password")
-                    if password is None:
-                        raise ValueError("Key encrypted and no password found or given.")
-
+                    raise ValueError("Key encrypted and no password found or given.")
+            else:
+                password = None
             if self.settings["ssh_key_type"] == "RSA":
                 key = paramiko.RSAKey.from_private_key_file(self.settings["ssh_key_path"], password)
             elif self.settings["ssh_key_type"] == "ECDSA":
