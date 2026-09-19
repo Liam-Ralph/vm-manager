@@ -14,10 +14,10 @@
 
 # Standard Library
 
+import enum
 import importlib
 import os
 import shutil
-import threading
 
 # Third Party
 
@@ -91,6 +91,19 @@ ICON_NAMES = {
 }
 
 icons_dict = {}
+
+
+# Enums
+
+class SSH_AUTH_TYPE(enum.Enum):
+    PASSWORD = 0
+    KEY = 1
+
+class SSH_AUTH_METHOD(enum.Enum):
+    PASSWORD = 0
+    LOADED_KEY = 1
+    PUBLIC_KEY = 2
+    PRIVATE_KEY = 3
 
 
 # Classes
@@ -212,7 +225,7 @@ class MainWindow(QMainWindow):
 
         self.ssh_auth_type_combo = QComboBox()
         self.ssh_auth_type_combo.addItems(SSH_AUTH_TYPES)
-        self.ssh_auth_type_combo.setCurrentText(self.settings["ssh_auth_type"])
+        self.ssh_auth_type_combo.setCurrentIndex(self.settings["ssh_auth_type"])
         self.layout_left.addWidget(self.ssh_auth_type_combo)
 
         self.ssh_key_loaded_check = QCheckBox("SSH Key Loaded")
@@ -224,9 +237,9 @@ class MainWindow(QMainWindow):
         self.ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
         self.layout_left.addWidget(self.ssh_key_path_entry)
 
-        self.ssh_key_encrypted_check = QCheckBox("SSH Key Encrypted")
-        self.ssh_key_encrypted_check.setChecked(self.settings["ssh_key_encrypted"])
-        self.layout_left.addWidget(self.ssh_key_encrypted_check)
+        self.ssh_key_private_check = QCheckBox("SSH Key Private")
+        self.ssh_key_private_check.setChecked(self.settings["ssh_key_private"])
+        self.layout_left.addWidget(self.ssh_key_private_check)
 
         self.layout_left.addWidget(QLabel("SSH Key Type"))
         self.ssh_key_type_combo = QComboBox()
@@ -384,8 +397,8 @@ class MainWindow(QMainWindow):
             if setting not in self.settings.keys():
                 missing_settings.append(setting)
         if (
-            self.settings["ssh_auth_type"] == "Key" and (not self.settings["ssh_key_loaded"]) and
-            self.settings["key_path"] == ""
+            self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.KEY and
+            (not self.settings["ssh_key_loaded"]) and self.settings["key_path"] == ""
         ):
             missing_settings.append("key_path")
 
@@ -595,17 +608,29 @@ class MainWindow(QMainWindow):
                     self.settings[line[:-1]] = ""
                     continue
                 setting, value = line.split("=")
+                if setting == "ssh_auth_type":
+                    self.settings["ssh_auth_type"] = SSH_AUTH_TYPES.index(setting)
+                    continue
                 if value in ("True", "False"):
                     value = (value == "True")
                 self.settings[setting] = value
 
         for setting in (
-            "ssh_auth_type", "ssh_key_loaded", "ssh_key_path", "ssh_key_encrypted", "ssh_key_type",
+            "ssh_auth_type", "ssh_key_loaded", "ssh_key_path", "ssh_key_private", "ssh_key_type",
             "server_hostname", "server_username", "local_vms_path", "server_vms_path",
             "vm_ext", "vm_hashfile_path"
         ):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
+
+        if self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.PASSWORD:
+            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PASSWORD
+        elif self.settings["ssh_key_loaded"]:
+            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.LOADED_KEY
+        elif self.settings["ssh_key_private"]:
+            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PRIVATE_KEY
+        else:
+            self.settings["ssh_auth_method"] = SSH_AUTH_METHOD.PUBLIC_KEY
 
     def set_setting(self, setting, value):
         """
@@ -637,7 +662,7 @@ class MainWindow(QMainWindow):
 
         # Password Connection
 
-        if self.settings["ssh_auth_type"] == "Password":
+        if self.settings["ssh_auth_type"] == SSH_AUTH_TYPE.PASSWORD:
             password = self.get_password("SSH Password")
             if password is None:
                 raise ValueError("Auth type is password and no password found or given.")
@@ -657,10 +682,10 @@ class MainWindow(QMainWindow):
             )
 
         else:
-            if self.settings["ssh_key_encrypted"]:
+            if self.settings["ssh_key_private"]:
                 password = self.get_password("SSH Key Password")
                 if password is None:
-                    raise ValueError("Key encrypted and no password found or given.")
+                    raise ValueError("Key private and no password found or given.")
             else:
                 password = None
             if self.settings["ssh_key_type"] == "RSA":
