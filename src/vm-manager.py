@@ -286,9 +286,9 @@ class InfoWindow(QMainWindow):
 
 class Bar(QLabel):
 
-    def __init__(self, text, size, max_width, max_size):
+    def __init__(self, name, size, max_width, max_size):
 
-        super().__init__(text)
+        super().__init__(f"{name}\n{format_size(size)}")
 
         self.size = size
 
@@ -640,41 +640,40 @@ class MainWindow(QMainWindow):
             spec.loader.exec_module(get_machines)
             vms_str = get_machines.get_machines(
                 self.settings["local_vms_path"], self.settings["vm_ext"],
-                self.settings["vm_hashfile_path"], self.settings["local_vms_path"]
+                self.settings["vm_hashfile_path"]
             )
             for line in vms_str.splitlines():
                 md5_hash, size, path = line.split(" ", 2)
                 self.vms.append(VirtualMachine(
-                    path, self.get_icon(os.path.basename(path), self.settings["local_vms_path"]),
+                    path, self.get_icon(self.settings["local_vms_path"], path),
                     local_size=int(size), local_md5=md5_hash
                 ))
 
-            # Connect to Server
+            # Get Server VMs
 
             if self.ssh is not None:
-
-                # Get Server VMs
 
                 stdout = self.ssh_exec_command(
                     f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
                     f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" " +
-                    f"\"{self.settings["vm_hashfile_path"]}\" " +
-                    f"\"{self.settings["server_vms_path"]}\""
+                    f"\"{self.settings["vm_hashfile_path"]}\""
                 )
 
                 for line in stdout.splitlines():
-                    md5_hash, size, path = line.decode().split(" ", 2)
-                    name = os.path.basename(path)
+                    line = line.decode()
+                    md5_hash = line[:32]
+                    line = line[33:]
+                    size, path = line.split(" ", 1)
                     found_vm = False
                     for vm in self.vms:
-                        if vm.name == name:
+                        if vm.path == path:
                             vm.server_size = int(size)
                             vm.server_md5 = md5_hash
                             found_vm = True
                             break
                     if not found_vm:
                         self.vms.append(VirtualMachine(
-                            path, self.get_icon(name, self.settings["server_vms_path"]),
+                            path, self.get_icon(self.settings["server_vms_path"], path),
                             server_size=int(size), local_md5=md5_hash
                         ))
 
@@ -752,7 +751,7 @@ class MainWindow(QMainWindow):
 
             vm_layout_icon = QVBoxLayout()
 
-            pixmap = QPixmap(f"{PATH_ICONS}/{vm.icon}")
+            pixmap = QPixmap(os.path.join(PATH_ICONS, vm.icon))
             pixmap_scaled = pixmap.scaled(100, 100)
             icon_label = QLabel()
             icon_label.setPixmap(pixmap_scaled)
@@ -821,18 +820,12 @@ class MainWindow(QMainWindow):
             # Local
 
             if vm.local_size is not None:
-                local_bars.append(Bar(
-                    f"{vm.name}\n{format_size(vm.local_size)}",
-                    vm.local_size, max_width, max_size
-                ))
+                local_bars.append(Bar(vm.name,vm.local_size, max_width, max_size))
 
             # Server
 
             if vm.server_size is not None:
-                server_bars.append(Bar(
-                    f"{vm.name}\n{format_size(vm.server_size)}",
-                    vm.server_size, max_width, max_size
-                ))
+                server_bars.append(Bar(vm.name, vm.server_size, max_width, max_size))
 
         # Sort and Add Bars
 
@@ -965,14 +958,14 @@ class MainWindow(QMainWindow):
         sftp = self.ssh.open_sftp()
 
         for script in os.listdir(PATH_SCRIPTS):
-            local_path = f"{PATH_SCRIPTS}/{script}"
+            local_path = os.path.join(PATH_SCRIPTS, script)
             if (
                 (not os.path.isfile(local_path)) or
                 ((not RELEASE_PATHS) and script.endswith(os.path.basename(__file__)))
             ):
                 continue
             server_path = (
-                f"{PATH_SERVER_SCRIPTS}/{script}".replace(
+                os.path.join(PATH_SERVER_SCRIPTS, script).replace(
                     "~", "/home/" + self.settings["server_username"], 1
                 )
             )
@@ -993,12 +986,12 @@ class MainWindow(QMainWindow):
             self.raise_ssh_error(f"Error with ssh command \"{command}\": {stderr_data}")
         return stdout.read()
 
-    def get_icon(self, name, vms_path):
+    def get_icon(self, vms_path, vm_path):
 
         # Check Saved Icons
 
         global icons_dict
-        icon = icons_dict[name] if name in icons_dict.keys() else "unknown"
+        icon = icons_dict[vm_path] if vm_path in icons_dict.keys() else "unknown"
 
         if icon == "unknown":
 
@@ -1018,18 +1011,18 @@ class MainWindow(QMainWindow):
 
             # Compare with Name
 
-            search_icon_names(name)
+            search_icon_names(vm_path)
 
             if icon == "unknown":
 
                 # Look for OS Type
 
                 os_type = None
-                path = f"{vms_path}/{name}"
-                if os.path.exists(path):
-                    for path in os.listdir(path):
+                search_path = os.path.join(vms_path, vm_path)
+                if os.path.exists(search_path):
+                    for path in os.listdir(search_path):
                         if path.endswith(".vbox"):
-                            with open(f"{vms_path}/{name}/{path}", "r") as file:
+                            with open(os.path.join(search_path, path), "r") as file:
                                 for line in file.readlines():
                                     if line.strip().startswith("<Machine"):
                                         for word in line.strip().split(" "):
@@ -1070,8 +1063,27 @@ class MainWindow(QMainWindow):
 
         sftp = self.ssh.open_sftp()
 
-        local_vm_path = f"{self.settings["local_vms_path"]}/{vm.path}"
-        # walk server path
+        stdout = self.ssh_exec_command(
+            f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-vm-files.py " +
+            f"\"{self.settings["server_vms_path"]}\" \"{vm.path}\""
+        )
+
+        local_vm_path = os.path.join(self.settings["local_vms_path"], vm.path)
+        if os.path.exists(local_vm_path):
+            os.rmdir(local_vm_path)
+
+        for line in stdout.splitlines():
+            line = line.decode()
+            if len(line) < 4:
+                continue
+            type = line[:4]
+            path = line[4:]
+            local_path = os.path.join(self.settings["local_vms_path"], path)
+            if type == "file":
+                sftp.get(os.path.join(self.settings["server_vms_path"], path), local_path)
+            elif type == "dir_":
+                if not os.path.exists(local_path):
+                    os.mkdir(local_path)
 
         sftp.close()
 
