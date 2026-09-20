@@ -134,12 +134,13 @@ class VirtualMachine:
 class Worker(QObject):
 
     finished = Signal()
-    warning = Signal(tuple)
+    warning_signal = Signal(tuple)
 
     # Constructor
 
-    def __init__(self, MainWindow):
+    def __init__(self, MainWindow, vm = None):
         self.MainWindow = MainWindow
+        self.vm = vm
         super().__init__()
 
     # Functions
@@ -153,14 +154,14 @@ class Worker(QObject):
         try:
             self.MainWindow.connect_ssh()
         except Exception as e:
-            self.warning.emit(("Error Connecting to SSH", str(e)))
+            self.warning_signal.emit(("Error Connecting to SSH", str(e)))
             self.MainWindow.ssh = None
         finally:
             self.finished.emit()
 
-    def pull_vm(self, vm):
+    def pull_vm(self):
         self.MainWindow.ssh_thread.wait()
-        self.MainWindow.pull_vm(vm)
+        self.MainWindow.pull_vm(self.vm)
         self.finished.emit()
 
 # Info Window
@@ -304,6 +305,7 @@ class MainWindow(QMainWindow):
 
     load_vm_widgets_signal = Signal()
     warning_signal = Signal(str)
+    raise_ssh_error_signal = Signal(str)
 
     # Constructor
 
@@ -470,7 +472,7 @@ class MainWindow(QMainWindow):
 
         self.layout_right_widget = QScrollArea()
         self.layout_right_widget.setWidgetResizable(True)
-        self.layout_right_widget.setMinimumWidth(300)
+        self.layout_right_widget.setMinimumWidth(200)
         self.layout_right_widget.setMaximumWidth(400)
         self.layout_right_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -504,7 +506,10 @@ class MainWindow(QMainWindow):
 
         self.layout_back.addLayout(self.layout_middle)
 
+        # Connect Signals
+
         self.warning_signal.connect(self.show_warning)
+        self.raise_ssh_error_signal.connect(self.raise_ssh_error)
 
         self.ssh = None
         self.start_load_vms()
@@ -556,12 +561,32 @@ class MainWindow(QMainWindow):
         self.vm_worker = Worker(self)
         self.vm_worker.moveToThread(self.vm_thread)
         self.vm_thread.started.connect(self.vm_worker.load_vms)
-        self.vm_worker.warning.connect(self.show_warning)
+        self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
         self.vm_thread.start()
 
     def start_connect_ssh(self):
+
+        # Settings Check
+
+        missing_settings = []
+        for setting in (
+            "server_hostname", "server_username",
+            "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"
+        ):
+            if setting not in self.settings.keys():
+                missing_settings.append(setting)
+        if (
+            self.settings["ssh_auth_method"] in
+            (SSH_AUTH_METHOD.PRIVATE_KEY, SSH_AUTH_METHOD.PUBLIC_KEY) and
+            self.settings["key_path"] == ""
+        ):
+            missing_settings.append("key_path")
+
+        if len(missing_settings) > 0:
+            self.warning_signal.emit("Missing settings: " + ", ".join(missing_settings))
+            return
 
         # Get Password
 
@@ -593,93 +618,73 @@ class MainWindow(QMainWindow):
         self.ssh_worker = Worker(self)
         self.ssh_worker.moveToThread(self.ssh_thread)
         self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
-        self.ssh_worker.warning.connect(self.show_warning)
+        self.ssh_worker.warning_signal.connect(self.show_warning)
         self.ssh_worker.finished.connect(self.ssh_thread.quit)
         self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
         self.ssh_thread.start()
 
     def load_vms(self):
 
-        # Load Virtual Machines
+        # Load Virtual Machines Config
 
-        missing_settings = []
-        for setting in (
-            "server_hostname", "server_username",
-            "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"
-        ):
-            if setting not in self.settings.keys():
-                missing_settings.append(setting)
-        if (
-            self.settings["ssh_auth_method"] in
-            (SSH_AUTH_METHOD.PRIVATE_KEY, SSH_AUTH_METHOD.PUBLIC_KEY) and
-            self.settings["key_path"] == ""
-        ):
-            missing_settings.append("key_path")
+        global icons_dict
+        if os.path.exists(PATH_VMS_CONF):
+            with open(PATH_VMS_CONF, "r") as file:
+                for line in file:
+                    name, icon = line.split(" / ")
+                    icons_dict[name] = icon
 
-        if len(missing_settings) > 0:
-            self.warning_signal.emit("Missing settings: " + ", ".join(missing_settings))
-        else:
+        # Get Local VMs
 
-            # Load Virtual Machines Config
+        self.vms = []
 
-            global icons_dict
-            if os.path.exists(PATH_VMS_CONF):
-                with open(PATH_VMS_CONF, "r") as file:
-                    for line in file:
-                        name, icon = line.split(" / ")
-                        icons_dict[name] = icon
+        spec = importlib.util.spec_from_file_location(
+            "get-machines", PATH_SCRIPTS + "/get-machines.py"
+        )
+        get_machines = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(get_machines)
+        vms_str = get_machines.get_machines(
+            self.settings["local_vms_path"], self.settings["vm_ext"],
+            self.settings["vm_hashfile_path"]
+        )
+        for line in vms_str.splitlines():
+            md5_hash, size, path = line.split(" ", 2)
+            self.vms.append(VirtualMachine(
+                path, self.get_icon(self.settings["local_vms_path"], path),
+                local_size=int(size), local_md5=md5_hash
+            ))
 
-            # Get Local VMs
+        # Get Server VMs
 
-            self.vms = []
+        if self.ssh is not None:
 
-            spec = importlib.util.spec_from_file_location(
-                "get-machines", PATH_SCRIPTS + "/get-machines.py"
+            stdout = self.ssh_exec_command(
+                f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
+                f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" " +
+                f"\"{self.settings["vm_hashfile_path"]}\""
             )
-            get_machines = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(get_machines)
-            vms_str = get_machines.get_machines(
-                self.settings["local_vms_path"], self.settings["vm_ext"],
-                self.settings["vm_hashfile_path"]
-            )
-            for line in vms_str.splitlines():
-                md5_hash, size, path = line.split(" ", 2)
-                self.vms.append(VirtualMachine(
-                    path, self.get_icon(self.settings["local_vms_path"], path),
-                    local_size=int(size), local_md5=md5_hash
-                ))
 
-            # Get Server VMs
+            for line in stdout.splitlines():
+                line = line.decode()
+                md5_hash = line[:32]
+                line = line[33:]
+                size, path = line.split(" ", 1)
+                found_vm = False
+                for vm in self.vms:
+                    if vm.path == path:
+                        vm.server_size = int(size)
+                        vm.server_md5 = md5_hash
+                        found_vm = True
+                        break
+                if not found_vm:
+                    self.vms.append(VirtualMachine(
+                        path, self.get_icon(self.settings["server_vms_path"], path),
+                        server_size=int(size), local_md5=md5_hash
+                    ))
 
-            if self.ssh is not None:
+        self.vms = sorted(self.vms, key=lambda vm: vm.path.lower())
 
-                stdout = self.ssh_exec_command(
-                    f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
-                    f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" " +
-                    f"\"{self.settings["vm_hashfile_path"]}\""
-                )
-
-                for line in stdout.splitlines():
-                    line = line.decode()
-                    md5_hash = line[:32]
-                    line = line[33:]
-                    size, path = line.split(" ", 1)
-                    found_vm = False
-                    for vm in self.vms:
-                        if vm.path == path:
-                            vm.server_size = int(size)
-                            vm.server_md5 = md5_hash
-                            found_vm = True
-                            break
-                    if not found_vm:
-                        self.vms.append(VirtualMachine(
-                            path, self.get_icon(self.settings["server_vms_path"], path),
-                            server_size=int(size), local_md5=md5_hash
-                        ))
-
-            self.vms = sorted(self.vms, key=lambda vm: vm.name.lower())
-
-            self.load_vm_widgets_signal.emit()
+        self.load_vm_widgets_signal.emit()
 
     def clear_password(self):
 
@@ -983,7 +988,7 @@ class MainWindow(QMainWindow):
         stdout, stderr = self.ssh.exec_command(command)[1:]
         stderr_data = stderr.read()
         if stderr_data:
-            self.raise_ssh_error(f"Error with ssh command \"{command}\": {stderr_data}")
+            self.raise_ssh_error_signal.emit(f"Error with ssh command \"{command}\": {stderr_data}")
         return stdout.read()
 
     def get_icon(self, vms_path, vm_path):
@@ -1048,18 +1053,19 @@ class MainWindow(QMainWindow):
 
         # Pull Virtual Machine
 
-        self.vm_thread.wait()
-
         self.vm_thread = QThread()
-        self.vm_worker = Worker(self)
+        self.vm_worker = Worker(self, vm)
         self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(lambda: self.vm_worker.pull_vm(vm))
-        self.vm_worker.warning.connect(self.show_warning)
+        self.vm_thread.started.connect(self.vm_worker.pull_vm)
+        self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
         self.vm_thread.start()
 
     def pull_vm(self, vm):
+
+        if self.ssh is None:
+            self.start_connect_ssh()
 
         sftp = self.ssh.open_sftp()
 
@@ -1070,7 +1076,7 @@ class MainWindow(QMainWindow):
 
         local_vm_path = os.path.join(self.settings["local_vms_path"], vm.path)
         if os.path.exists(local_vm_path):
-            os.rmdir(local_vm_path)
+            shutil.rmtree(local_vm_path, ignore_errors=True)
 
         for line in stdout.splitlines():
             line = line.decode()
