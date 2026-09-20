@@ -1,14 +1,17 @@
-add ssh info
+add values to vm widgets when not needed
+add in progress indicator
 add push and pull functions
 add delete function
-add load_vm, pull_vms, push_vms
-add in progress indicator
-add widget to VirtualMachine
-add argument types
-connect settings buttons
+add pull_vms, push_vms
+
+add ssh info
 finish set_setting
+connect settings buttons
+add argument types
+finish icon names
 create icons
 add tooltips
-finish icon names
+
 add styles to everything
 reorder functions
+reorder signals
