@@ -1,4 +1,7 @@
 add ssh info
+add push and pull functions
+add argument types
+add signal for raise_ssh_error
 connect settings buttons
 finish set_setting
 create icons

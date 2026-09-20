@@ -145,11 +145,9 @@ class Worker(QObject):
     # Functions
 
     def load_vms(self):
-        try:
-            self.MainWindow.ssh_thread.wait()
-            self.MainWindow.load_vms()
-        finally:
-            self.finished.emit()
+        self.MainWindow.ssh_thread.wait()
+        self.MainWindow.load_vms()
+        self.finished.emit()
 
     def connect_ssh(self):
         try:
@@ -159,6 +157,11 @@ class Worker(QObject):
             self.MainWindow.ssh = None
         finally:
             self.finished.emit()
+
+    def pull_vm(self, vm):
+        self.MainWindow.ssh_thread.wait()
+        self.MainWindow.pull_vm(vm)
+        self.finished.emit()
 
 # Info Window
 
@@ -299,7 +302,7 @@ class MainWindow(QMainWindow):
 
     # Signals
 
-    add_vms_signal = Signal()
+    load_vm_widgets_signal = Signal()
     warning_signal = Signal(str)
 
     # Constructor
@@ -458,7 +461,7 @@ class MainWindow(QMainWindow):
         self.layout_center_listwidget.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.layout_center_listwidget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.layout_center_listwidget.setSpacing(5)
-        self.add_vms_signal.connect(self.add_vms)
+        self.load_vm_widgets_signal.connect(self.load_vm_widgets)
         self.layout_center.addWidget(self.layout_center_listwidget)
 
         self.layout_middle.addWidget(self.layout_center_widget)
@@ -503,6 +506,7 @@ class MainWindow(QMainWindow):
 
         self.warning_signal.connect(self.show_warning)
 
+        self.ssh = None
         self.start_load_vms()
 
     # Destructor
@@ -543,7 +547,8 @@ class MainWindow(QMainWindow):
 
         # Connect SSH
 
-        self.start_connect_ssh()
+        if self.ssh is None:
+            self.start_connect_ssh()
 
         # Load Virtual Machines
 
@@ -635,7 +640,7 @@ class MainWindow(QMainWindow):
             spec.loader.exec_module(get_machines)
             vms_str = get_machines.get_machines(
                 self.settings["local_vms_path"], self.settings["vm_ext"],
-                self.settings["vm_hashfile_path"]
+                self.settings["vm_hashfile_path"], self.settings["local_vms_path"]
             )
             for line in vms_str.splitlines():
                 md5_hash, size, path = line.split(" ", 2)
@@ -653,7 +658,8 @@ class MainWindow(QMainWindow):
                 stdout = self.ssh_exec_command(
                     f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-machines.py " +
                     f"\"{self.settings["server_vms_path"]}\" \"{self.settings["vm_ext"]}\" " +
-                    f"\"{self.settings["vm_hashfile_path"]}\""
+                    f"\"{self.settings["vm_hashfile_path"]}\" " +
+                    f"\"{self.settings["server_vms_path"]}\""
                 )
 
                 for line in stdout.splitlines():
@@ -674,7 +680,7 @@ class MainWindow(QMainWindow):
 
             self.vms = sorted(self.vms, key=lambda vm: vm.name.lower())
 
-            self.add_vms_signal.emit()
+            self.load_vm_widgets_signal.emit()
 
     def clear_password(self):
 
@@ -688,7 +694,7 @@ class MainWindow(QMainWindow):
 
         QMessageBox.warning(self, warning_str[0], warning_str[1])
 
-    def add_vms(self):
+    def load_vm_widgets(self):
 
         # Set Sizes Bar Colors
 
@@ -708,7 +714,6 @@ class MainWindow(QMainWindow):
                 max_size = vm.local_size
             if vm.server_size is not None and vm.server_size > max_size:
                 max_size = vm.server_size
-        size_ratio = max_width / max_size
 
         # Size Widget Lists
 
@@ -789,6 +794,7 @@ class MainWindow(QMainWindow):
                 vm_layout_server.addWidget(QLabel(format_size(vm.server_size)))
 
                 pull_button = QPushButton("Pull")
+                pull_button.pressed.connect(lambda vm=vm: self.start_pull_vm(vm))
                 vm_layout_server.addWidget(pull_button)
 
                 delete_button = QPushButton("Delete")
@@ -960,16 +966,16 @@ class MainWindow(QMainWindow):
 
         for script in os.listdir(PATH_SCRIPTS):
             local_path = f"{PATH_SCRIPTS}/{script}"
+            if (
+                (not os.path.isfile(local_path)) or
+                ((not RELEASE_PATHS) and script.endswith(os.path.basename(__file__)))
+            ):
+                continue
             server_path = (
                 f"{PATH_SERVER_SCRIPTS}/{script}".replace(
                     "~", "/home/" + self.settings["server_username"], 1
                 )
             )
-            if (
-                (not os.path.isfile(local_path)) or
-                ((not RELEASE_PATHS) and script.endswith(__file__))
-            ):
-                continue
             if not self.ssh_path_found(server_path):
                 sftp.put(local_path, server_path)
 
@@ -1040,6 +1046,34 @@ class MainWindow(QMainWindow):
 
         return icon + ".png"
 
+    def start_pull_vm(self, vm):
+
+        # Connect SSH
+
+        if self.ssh is None:
+            self.start_connect_ssh()
+
+        # Pull Virtual Machine
+
+        self.vm_thread.wait()
+
+        self.vm_thread = QThread()
+        self.vm_worker = Worker(self)
+        self.vm_worker.moveToThread(self.vm_thread)
+        self.vm_thread.started.connect(lambda: self.vm_worker.pull_vm(vm))
+        self.vm_worker.warning.connect(self.show_warning)
+        self.vm_worker.finished.connect(self.vm_thread.quit)
+        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
+        self.vm_thread.start()
+
+    def pull_vm(self, vm):
+
+        sftp = self.ssh.open_sftp()
+
+        local_vm_path = f"{self.settings["local_vms_path"]}/{vm.path}"
+        # walk server path
+
+        sftp.close()
 
 # Functions
 
