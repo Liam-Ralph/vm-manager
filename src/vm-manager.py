@@ -108,7 +108,7 @@ class SSH_AUTH_METHOD(enum.IntEnum):
 
 class LOAD_VALUE(enum.IntEnum):
     LOCAL = 0
-    REMOTE = 1
+    SERVER = 1
     BOTH = 2
 
 
@@ -297,11 +297,14 @@ class Bar(QLabel):
 
         super().__init__(f"{name}\n{format_size(size)}")
 
-        self.size = size
-
         self.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.setWordWrap(True)
-        self.setFixedWidth(max(0, round(max_width * size / max_size) - 4))
+        if size is not None:
+            self.size = size
+            self.setFixedWidth(max(4, round(max_width * size / max_size) - 4))
+        else:
+            self.size = -1
+            self.setFixedWidth(0)
 
 # Main Window
 
@@ -700,7 +703,7 @@ class MainWindow(QMainWindow):
                 if not found_vm:
                     self.vms.append(VirtualMachine(
                         path, self.get_icon(self.settings["server_vms_path"], path),
-                        server_size=int(size), local_md5=md5_hash
+                        server_size=int(size), server_md5=md5_hash
                     ))
 
         self.vms = sorted(self.vms, key=lambda vm: vm.path.lower())
@@ -718,30 +721,6 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, warning_str[0], warning_str[1])
 
     def load_vm_widgets(self):
-
-        # Set Sizes Bar Colors
-
-        self.layout_right_local_widget.setStyleSheet(
-            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
-        )
-        self.layout_right_server_widget.setStyleSheet(
-            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
-        )
-
-        # Get Virtual Machine Maximum Size
-
-        max_width = self.layout_right_local_widget.width() - 20
-        max_size = 1
-        for vm in self.vms:
-            if vm.local_size is not None and vm.local_size > max_size:
-                max_size = vm.local_size
-            if vm.server_size is not None and vm.server_size > max_size:
-                max_size = vm.server_size
-
-        # Size Widget Lists
-
-        local_bars = []
-        server_bars = []
 
         # Display Virtual Machines
 
@@ -848,24 +827,56 @@ class MainWindow(QMainWindow):
             item.setSizeHint(QSize(350, 200))
             self.layout_center_listwidget.setItemWidget(item, vm.widget)
 
-            # Add To Virtual Machine Sizes
+        self.load_bars()
 
-            # Local
+    def load_bars(self):
 
-            if vm.local_size is not None:
-                local_bars.append(Bar(vm.name,vm.local_size, max_width, max_size))
+        # Set Sizes Bar Colors
 
-            # Server
+        self.layout_right_local_widget.setStyleSheet(
+            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
+        )
+        self.layout_right_server_widget.setStyleSheet(
+            "QLabel { border: 2px solid; margin: 1px; padding: 1px; }"
+        )
 
-            if vm.server_size is not None:
-                server_bars.append(Bar(vm.name, vm.server_size, max_width, max_size))
+        # Get Virtual Machine Maximum Size
+
+        max_width = self.layout_right_local_widget.width() - 20
+        max_size = 1
+        for vm in self.vms:
+            if vm.local_size is not None and vm.local_size > max_size:
+                max_size = vm.local_size
+            if vm.server_size is not None and vm.server_size > max_size:
+                max_size = vm.server_size
+
+        # Size Widget Lists
+
+        local_bars = []
+        server_bars = []
+
+        for vm in self.vms:
+            local_bars.append(Bar(vm.name, vm.local_size, max_width, max_size))
+            server_bars.append(Bar(vm.name, vm.server_size, max_width, max_size))
 
         # Sort and Add Bars
 
+        for i in reversed(range(self.layout_right_local.count())):
+            self.layout_right_local.itemAt(i).widget().deleteLater()
+        for i in reversed(range(self.layout_right_server.count())):
+            self.layout_right_server.itemAt(i).widget().deleteLater()
+
         for bar in sorted(local_bars, key=lambda b: b.size, reverse=True):
+            if bar.size == -1:
+                break
             self.layout_right_local.addWidget(bar)
         for bar in sorted(server_bars, key=lambda b: b.size, reverse=True):
+            if bar.size == -1:
+                break
             self.layout_right_server.addWidget(bar)
+
+        self.layout_right_local.update()
+        self.layout_right_server.update()
 
     def raise_ssh_error(self, err):
         error_message = QErrorMessage(self)
@@ -1092,7 +1103,7 @@ class MainWindow(QMainWindow):
             else:
                 print(vm_str)
 
-        if load_value in (LOAD_VALUE.LOCAL, LOAD_VALUE.BOTH):
+        if load_value in (LOAD_VALUE.SERVER, LOAD_VALUE.BOTH):
             stdout = self.ssh_exec_command(
                 f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-vm-info.py " +
                 f"\"{self.settings["server_vms_path"]}\" \"{vm.path}\" " +
@@ -1109,6 +1120,8 @@ class MainWindow(QMainWindow):
                 print(vm_str)
 
         vm.md5_label.setText("Local =" + ("=" if vm.md5_match() else "/") + "= Remote")
+        vm.widget.update()
+        self.load_bars()
 
     def start_pull_vm(self, vm):
 
@@ -1161,6 +1174,27 @@ class MainWindow(QMainWindow):
                     os.mkdir(local_path)
 
         sftp.close()
+
+    def start_push_vm(self, vm):
+
+        # Connect SSH
+
+        if self.ssh is None:
+            self.start_connect_ssh()
+
+        # Push Virtual Machine
+
+        self.vm_thread = QThread()
+        self.vm_worker = Worker(self, vm)
+        self.vm_worker.moveToThread(self.vm_thread)
+        self.vm_thread.started.connect(self.vm_worker.push_vm)
+        self.vm_worker.warning_signal.connect(self.show_warning)
+        self.vm_worker.finished.connect(self.vm_thread.quit)
+        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
+        self.vm_thread.finished.connect(
+            lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.SERVER)
+        )
+        self.vm_thread.start()
 
 # Functions
 

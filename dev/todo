@@ -1,8 +1,9 @@
-add values to vm widgets when not needed
 add in progress indicator
 add push and pull functions
 add delete function
 add pull_vms, push_vms
+
+make load_bars faster (don't recalculate everything)
 
 add ssh info
 finish set_setting
