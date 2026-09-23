@@ -144,7 +144,7 @@ class Worker(QObject):
 
     # Constructor
 
-    def __init__(self, MainWindow, vm = None):
+    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None):
         self.MainWindow = MainWindow
         self.vm = vm
         super().__init__()
@@ -185,7 +185,7 @@ class InfoWindow(QMainWindow):
 
     # Constructor
 
-    def __init__(self, parent):
+    def __init__(self, parent: MainWindow):
 
         super().__init__(parent)
 
@@ -291,7 +291,7 @@ class InfoWindow(QMainWindow):
 
 class Bar(QLabel):
 
-    def __init__(self, name, size, max_width, max_size):
+    def __init__(self, name: str, size: int, max_width: int, max_size: int):
 
         super().__init__(f"{name}\n{format_size(size)}")
 
