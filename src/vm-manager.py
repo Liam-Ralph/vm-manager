@@ -151,11 +151,6 @@ class Worker(QObject):
 
     # Functions
 
-    def load_vms(self):
-        self.MainWindow.ssh_thread.wait()
-        self.MainWindow.load_vms()
-        self.finished.emit()
-
     def connect_ssh(self):
         try:
             self.MainWindow.connect_ssh()
@@ -165,9 +160,12 @@ class Worker(QObject):
         finally:
             self.finished.emit()
 
-    def pull_vm(self):
+    def generic_run(self, function: function):
         self.MainWindow.ssh_thread.wait()
-        self.MainWindow.pull_vm(self.vm)
+        if self.vm is not None:
+            function(self.vm)
+        else:
+            function()
         self.finished.emit()
 
 # Info Window
@@ -575,7 +573,7 @@ class MainWindow(QMainWindow):
         self.vm_thread = QThread()
         self.vm_worker = Worker(self)
         self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.load_vms)
+        self.vm_thread.started.connect(self.vm_worker.generic_run)
         self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
@@ -1135,7 +1133,7 @@ class MainWindow(QMainWindow):
         self.vm_thread = QThread()
         self.vm_worker = Worker(self, vm)
         self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.pull_vm)
+        self.vm_thread.started.connect(lambda: self.vm_worker.generic_run(self.pull_vm))
         self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
@@ -1187,7 +1185,7 @@ class MainWindow(QMainWindow):
         self.vm_thread = QThread()
         self.vm_worker = Worker(self, vm)
         self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.push_vm)
+        self.vm_thread.started.connect(lambda: self.vm_worker.generic_run(self.push_vm))
         self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
