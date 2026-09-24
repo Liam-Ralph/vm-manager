@@ -147,13 +147,13 @@ class Worker(QObject):
     def __init__(
         self, thread: QThread, MainWindow: MainWindow, vm: VirtualMachine = None
     ) -> None:
+        super().__init__()
         self.moveToThread(thread)
         self.MainWindow = MainWindow
         self.vm = vm
         self.warning_signal.connect(MainWindow.show_warning)
         self.finished.connect(thread.quit)
         thread.finished.connect(self.deleteLater)
-        super().__init__()
 
     # Functions
 
@@ -530,9 +530,7 @@ class MainWindow(QMainWindow):
         self.raise_ssh_error_signal.connect(self.raise_ssh_error)
         self.load_vms_signal.connect(self.start_load_vms)
         self.load_vm_widgets_signal.connect(self.load_vm_widgets)
-        self.load_vm_widget_signal.connect(
-            lambda vm, load_value: self.load_vm_widget(vm, load_value)
-        )
+        self.load_vm_widget_signal.connect(self.load_vm_widget)
 
         self.ssh = None
         self.vm_threads: list[QThread] = []
@@ -590,7 +588,7 @@ class MainWindow(QMainWindow):
 
         thread = QThread()
         self.vm_threads.append(thread)
-        worker = Worker(self, thread)
+        worker = Worker(thread, self)
         thread.started.connect(lambda: worker.generic_run(self.load_vms))
         thread.finished.connect(self.load_vm_widgets_signal.emit)
         thread.start()
@@ -644,7 +642,7 @@ class MainWindow(QMainWindow):
         # Connect SSH
 
         self.ssh_thread = QThread()
-        worker = Worker(self, self.ssh_thread)
+        worker = Worker(self.ssh_thread, self)
         self.ssh_thread.started.connect(worker.connect_ssh)
         self.ssh_thread.start()
 
@@ -1142,7 +1140,7 @@ class MainWindow(QMainWindow):
 
         thread = QThread()
         self.vm_threads.append(thread)
-        worker = Worker(self, thread, vm)
+        worker = Worker(thread, self, vm)
         thread.started.connect(lambda: worker.generic_run(self.pull_vm))
         thread.finished.connect(
             lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.LOCAL)
@@ -1190,7 +1188,7 @@ class MainWindow(QMainWindow):
 
         thread = QThread()
         self.vm_threads.append(thread)
-        worker = Worker(self, thread, vm)
+        worker = Worker(thread, self, vm)
         thread.started.connect(lambda: worker.generic_run(self.push_vm))
         thread.finished.connect(
             lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.SERVER)
