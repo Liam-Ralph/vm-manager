@@ -120,7 +120,7 @@ class VirtualMachine:
 
     def __init__(
         self, path, icon, local_size = None, server_size = None, local_md5 = None, server_md5 = None
-    ):
+    ) -> None:
         self.name = os.path.basename(path)
         self.path = path
         self.icon = icon
@@ -130,7 +130,7 @@ class VirtualMachine:
         self.server_md5 = server_md5
         self.widget = None
 
-    def md5_match(self):
+    def md5_match(self) -> bool:
         if self.local_md5 is None or self.server_md5 is None:
             return False
         return self.local_md5 == self.server_md5
@@ -144,14 +144,14 @@ class Worker(QObject):
 
     # Constructor
 
-    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None):
+    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None) -> None:
         self.MainWindow = MainWindow
         self.vm = vm
         super().__init__()
 
     # Functions
 
-    def connect_ssh(self):
+    def connect_ssh(self) -> None:
         try:
             self.MainWindow.connect_ssh()
         except Exception as e:
@@ -160,7 +160,7 @@ class Worker(QObject):
         finally:
             self.finished.emit()
 
-    def generic_run(self, function: function):
+    def generic_run(self, function: function) -> None:
         self.MainWindow.ssh_thread.wait()
         if self.vm is not None:
             function(self.vm)
@@ -174,7 +174,7 @@ class InfoWindow(QMainWindow):
 
     # Class Variables
 
-    def get_project_info():
+    def get_project_info() -> str:
         with open(PATH_README, "r") as file:
             return (
                 file.readline()[2:] + "\n" + 
@@ -264,7 +264,7 @@ class InfoWindow(QMainWindow):
 
     # Functions
 
-    def open_doc(self):
+    def open_doc(self) -> None:
 
         self.showMaximized()
 
@@ -291,7 +291,7 @@ class InfoWindow(QMainWindow):
 
 class Bar(QLabel):
 
-    def __init__(self, name: str, size: int, max_width: int, max_size: int):
+    def __init__(self, name: str, size: int, max_width: int, max_size: int) -> None:
 
         super().__init__(f"{name}\n{format_size(size)}")
 
@@ -318,7 +318,7 @@ class MainWindow(QMainWindow):
 
     # Constructor
 
-    def __init__(self):
+    def __init__(self) -> None:
 
         super().__init__()
 
@@ -525,11 +525,12 @@ class MainWindow(QMainWindow):
         )
 
         self.ssh = None
+        self.vm_threads: list[QThread] = []
         self.start_load_vms()
 
     # Destructor
 
-    def __del__(self):
+    def __del__(self) -> None:
 
         # Clear Password
 
@@ -546,22 +547,29 @@ class MainWindow(QMainWindow):
         # Quit QThreads
 
         try:
-            if self.vm_thread is not None and self.vm_thread.isRunning():
-                self.vm_thread.quit()
-                self.vm_thread.wait()
-        except (RuntimeError, AttributeError):
-            pass
-
-        try:
             if self.ssh_thread is not None and self.ssh_thread.isRunning():
                 self.ssh_thread.quit()
-                self.ssh_thread.wait()
-        except (RuntimeError, AttributeError):
+                if not self.ssh_thread.wait(5000):
+                    self.ssh_thread.terminate()
+                    self.ssh_thread.wait()
+        except (RuntimeError, AttributeError) as e:
+            print("Caught error while closing SSH thread:\n" + str(e))
             pass
+
+        for thread in self.vm_threads:
+            try:
+                if thread is not None and thread.isRunning():
+                    thread.quit()
+                    if not thread.wait(5000):
+                        thread.terminate()
+                        thread.wait()
+            except (RuntimeError, AttributeError) as e:
+                print("Caught error while closing VM thread:\n" + str(e))
+                pass
 
     # Functions
 
-    def start_load_vms(self):
+    def start_load_vms(self) -> None:
 
         # Connect SSH
 
@@ -570,17 +578,17 @@ class MainWindow(QMainWindow):
 
         # Load Virtual Machines
 
-        self.vm_thread = QThread()
+        thread = QThread()
         self.vm_worker = Worker(self)
         self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.generic_run)
+        self.vm_thread.started.connect(lambda: self.vm_worker.generic_run(self.load_vms))
         self.vm_worker.warning_signal.connect(self.show_warning)
         self.vm_worker.finished.connect(self.vm_thread.quit)
         self.vm_thread.finished.connect(self.vm_worker.deleteLater)
         self.vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
         self.vm_thread.start()
 
-    def start_connect_ssh(self):
+    def start_connect_ssh(self) -> None:
 
         # Settings Check
 
@@ -637,7 +645,7 @@ class MainWindow(QMainWindow):
         self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
         self.ssh_thread.start()
 
-    def load_vms(self):
+    def load_vms(self) -> None:
 
         # Load Virtual Machines Config
 
@@ -706,7 +714,7 @@ class MainWindow(QMainWindow):
 
         self.vms = sorted(self.vms, key=lambda vm: vm.path.lower())
 
-    def clear_password(self):
+    def clear_password(self) -> None:
 
         try:
             ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
@@ -714,11 +722,11 @@ class MainWindow(QMainWindow):
             pass
         self.saved_password = None
 
-    def show_warning(self, warning_str):
+    def show_warning(self, warning_str: tuple[str, str]) -> None:
 
         QMessageBox.warning(self, warning_str[0], warning_str[1])
 
-    def load_vm_widgets(self):
+    def load_vm_widgets(self) -> None:
 
         # Display Virtual Machines
 
@@ -827,7 +835,7 @@ class MainWindow(QMainWindow):
 
         self.load_bars()
 
-    def load_bars(self):
+    def load_bars(self) -> None:
 
         # Set Sizes Bar Colors
 
@@ -876,12 +884,12 @@ class MainWindow(QMainWindow):
         self.layout_right_local.update()
         self.layout_right_server.update()
 
-    def raise_ssh_error(self, err):
+    def raise_ssh_error(self, err: str) -> None:
         error_message = QErrorMessage(self)
         error_message.showMessage(err)
         raise ValueError(err)
 
-    def load_settings(self):
+    def load_settings(self) -> None:
         """
         Load user settings from `PATH_SETTINGS`.
 
@@ -920,7 +928,7 @@ class MainWindow(QMainWindow):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
 
-    def set_setting(self, setting, value):
+    def set_setting(self, setting: str, value: str | int | bool) -> None:
         """
         Set user setting in `PATH_SETTINGS`.
 
@@ -939,12 +947,12 @@ class MainWindow(QMainWindow):
 
         self.settings[setting] = value
 
-    def show_info(self):
+    def show_info(self) -> None:
         """Open the info window."""
         info_window = InfoWindow(self)
         info_window.show()
 
-    def connect_ssh(self):
+    def connect_ssh(self) -> None:
 
         self.ssh = paramiko.SSHClient()
 
@@ -1016,19 +1024,19 @@ class MainWindow(QMainWindow):
 
         sftp.close()
 
-    def ssh_path_found(self, path, type = "e"):
+    def ssh_path_found(self, path: str, type: str = "e") -> None:
         if path[0] == "~":
             path = path.replace("~", "/home/" + self.settings["server_username"], 1)
-        return b"found" in self.ssh_exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")
+        return "found" in self.ssh_exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")
 
-    def ssh_exec_command(self, command):
+    def ssh_exec_command(self, command: str) -> str:
         stdout, stderr = self.ssh.exec_command(command)[1:]
         stderr_data = stderr.read()
         if stderr_data:
             self.raise_ssh_error_signal.emit(f"Error with ssh command \"{command}\": {stderr_data}")
-        return stdout.read()
+        return stdout.read().decode()
 
-    def get_icon(self, vms_path, vm_path):
+    def get_icon(self, vms_path: str, vm_path: str) -> str:
 
         # Check Saved Icons
 
@@ -1081,7 +1089,7 @@ class MainWindow(QMainWindow):
 
         return icon + ".png"
 
-    def load_vm_widget(self, vm: VirtualMachine, load_value):
+    def load_vm_widget(self, vm: VirtualMachine, load_value: int) -> None:
 
         if load_value in (LOAD_VALUE.LOCAL, LOAD_VALUE.BOTH):
             spec = importlib.util.spec_from_file_location(
@@ -1102,12 +1110,11 @@ class MainWindow(QMainWindow):
                 print(vm_str)
 
         if load_value in (LOAD_VALUE.SERVER, LOAD_VALUE.BOTH):
-            stdout = self.ssh_exec_command(
+            vm_str = self.ssh_exec_command(
                 f"/usr/bin/python3 {PATH_SERVER_SCRIPTS}/get-vm-info.py " +
                 f"\"{self.settings["server_vms_path"]}\" \"{vm.path}\" " +
                 f"\"{self.settings["vm_hashfile_path"]}\""
             )
-            vm_str = stdout.decode()
             if len(vm_str) > 34:
                 vm.server_md5 = vm_str[:32]
                 vm.server_size = int(vm_str[33:])
@@ -1121,7 +1128,7 @@ class MainWindow(QMainWindow):
         vm.widget.update()
         self.load_bars()
 
-    def start_pull_vm(self, vm):
+    def start_pull_vm(self, vm: VirtualMachine) -> None:
 
         # Connect SSH
 
@@ -1142,7 +1149,7 @@ class MainWindow(QMainWindow):
         )
         self.vm_thread.start()
 
-    def pull_vm(self, vm):
+    def pull_vm(self, vm: VirtualMachine) -> None:
 
         if self.ssh is None:
             self.start_connect_ssh()
@@ -1159,7 +1166,6 @@ class MainWindow(QMainWindow):
             shutil.rmtree(local_vm_path, ignore_errors=True)
 
         for line in stdout.splitlines():
-            line = line.decode()
             if len(line) < 4:
                 continue
             type = line[:4]
@@ -1173,7 +1179,7 @@ class MainWindow(QMainWindow):
 
         sftp.close()
 
-    def start_push_vm(self, vm):
+    def start_push_vm(self, vm: VirtualMachine) -> None:
 
         # Connect SSH
 
@@ -1196,7 +1202,7 @@ class MainWindow(QMainWindow):
 
 # Functions
 
-def format_size(size):
+def format_size(size: int) -> str:
     if size is None:
         return "Nonexistent"
     suffixes = ("B", "kiB", "MiB", "GiB", "TiB", "PiB", "EiB")
@@ -1208,7 +1214,7 @@ def format_size(size):
 
 # Main Function
 
-def main():
+def main() -> None:
     app = QApplication()
     window = MainWindow()
     window.show()

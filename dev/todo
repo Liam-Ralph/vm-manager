@@ -9,7 +9,6 @@ make load_bars faster (don't recalculate everything)
 add ssh info
 finish set_setting
 connect settings buttons
-add function hints including returns
 finish icon names
 create icons
 add tooltips
