@@ -7,7 +7,7 @@ import sys
 
 # Function
 
-def get_machines(vms_path, vm_ext, vm_hashfile_path):
+def get_machines(vms_path: str, vm_ext: str, vm_hashfile_path: str) -> str:
     output = ""
     for path, dirs, files in os.walk(vms_path):
         vm_path = False
