@@ -1,4 +1,3 @@
-rework vm_thread to allow multiple threads at once
 add in progress indicator
 add push and pull functions
 add delete function
