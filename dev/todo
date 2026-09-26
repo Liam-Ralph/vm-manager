@@ -1,3 +1,4 @@
+rework vm_thread to allow multiple threads at once
 add in progress indicator
 add push and pull functions
 add delete function
@@ -8,7 +9,6 @@ make load_bars faster (don't recalculate everything)
 add ssh info
 finish set_setting
 connect settings buttons
-add argument types
 finish icon names
 create icons
 add tooltips

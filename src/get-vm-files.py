@@ -6,7 +6,7 @@ import sys
 
 # Function
 
-def get_vm_files(vms_path, vm_path):
+def get_vm_files(vms_path: str, vm_path: str) -> str:
     output = ""
     for path, dirs, files in os.walk(os.path.join(vms_path, vm_path)):
         output += f"dir_{path.removeprefix(vms_path + "/")}\n"
