@@ -589,7 +589,7 @@ class MainWindow(QMainWindow):
 
         # Load Virtual Machines
 
-        vm_thread = QThread()
+        vm_thread = QThread(self)
         vm_worker = Worker(self)
         vm_worker.moveToThread(vm_thread)
         vm_worker.warning_signal.connect(self.show_warning)
@@ -650,7 +650,7 @@ class MainWindow(QMainWindow):
 
         # Connect SSH
 
-        self.ssh_thread = QThread()
+        self.ssh_thread = QThread(self)
         self.ssh_worker = Worker(self)
         self.ssh_worker.moveToThread(self.ssh_thread)
         self.ssh_worker.warning_signal.connect(self.show_warning)
@@ -1151,7 +1151,7 @@ class MainWindow(QMainWindow):
 
         # Pull Virtual Machine
 
-        vm_thread = QThread()
+        vm_thread = QThread(self)
         vm_worker = Worker(self, vm)
         vm_worker.moveToThread(vm_thread)
         vm_worker.warning_signal.connect(self.show_warning)
@@ -1205,7 +1205,7 @@ class MainWindow(QMainWindow):
 
         # Push Virtual Machine
 
-        vm_thread = QThread()
+        vm_thread = QThread(self)
         vm_worker = Worker(self, vm)
         vm_worker.moveToThread(vm_thread)
         vm_worker.warning_signal.connect(self.show_warning)
