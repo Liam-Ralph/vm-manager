@@ -1,8 +1,8 @@
-rework vm_thread to allow multiple threads at once
 add in progress indicator
 add push and pull functions
 add delete function
 add pull_vms, push_vms
+prevent duplicate runs (i.e. pulling the same vm twice)
 
 make load_bars faster (don't recalculate everything)
 
