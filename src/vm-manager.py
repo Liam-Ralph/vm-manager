@@ -122,7 +122,7 @@ class VirtualMachine:
         self, path: str, icon: str,
         local_size: int | None = None, server_size: int | None = None,
         local_md5: str | None = None, server_md5: str | None = None
-    ):
+    ) -> None:
         self.name = os.path.basename(path)
         self.path = path
         self.icon = icon
@@ -146,19 +146,19 @@ class Worker(QObject):
 
     # Constructor
 
-    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None):
+    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None) -> None:
         super().__init__()
         self.MainWindow = MainWindow
         self.vm = vm
 
     # Functions
 
-    def load_vms(self):
+    def load_vms(self) -> None:
         self.MainWindow.ssh_thread.wait()
         self.MainWindow.load_vms()
         self.finished.emit()
 
-    def run(self, function: function):
+    def run(self, function: function) -> None:
         try:
             self.MainWindow.ssh_thread.wait()
             if self.vm is not None:
@@ -170,7 +170,7 @@ class Worker(QObject):
         finally:
             self.finished.emit()
 
-    def connect_ssh(self):
+    def connect_ssh(self) -> None:
         try:
             self.MainWindow.connect_ssh()
         except Exception as e:
@@ -179,7 +179,7 @@ class Worker(QObject):
         finally:
             self.finished.emit()
 
-    def pull_vm(self):
+    def pull_vm(self) -> None:
         self.MainWindow.ssh_thread.wait()
         self.MainWindow.pull_vm(self.vm)
         self.finished.emit()
@@ -201,7 +201,7 @@ class InfoWindow(QMainWindow):
 
     # Constructor
 
-    def __init__(self, parent: QWidget):
+    def __init__(self, parent: QWidget) -> None:
 
         super().__init__(parent)
 
@@ -280,7 +280,7 @@ class InfoWindow(QMainWindow):
 
     # Functions
 
-    def open_doc(self):
+    def open_doc(self) -> None:
 
         self.showMaximized()
 
@@ -307,7 +307,7 @@ class InfoWindow(QMainWindow):
 
 class Bar(QLabel):
 
-    def __init__(self, name: str, size: int, max_width: int, max_size: int):
+    def __init__(self, name: str, size: int, max_width: int, max_size: int) -> None:
 
         super().__init__(f"{name}\n{format_size(size)}")
 
@@ -334,7 +334,7 @@ class MainWindow(QMainWindow):
 
     # Constructor
 
-    def __init__(self):
+    def __init__(self) -> None:
 
         super().__init__()
 
@@ -547,7 +547,7 @@ class MainWindow(QMainWindow):
 
     # Destructor
 
-    def __del__(self):
+    def __del__(self) -> None:
 
         # Clear Password
 
@@ -580,7 +580,7 @@ class MainWindow(QMainWindow):
 
     # Functions
 
-    def start_load_vms(self):
+    def start_load_vms(self) -> None:
 
         # Connect SSH
 
@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
         self.vm_workers.append(vm_worker)
         vm_thread.start()
 
-    def start_connect_ssh(self):
+    def start_connect_ssh(self) -> None:
 
         # Settings Check
 
@@ -659,7 +659,7 @@ class MainWindow(QMainWindow):
         self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
         self.ssh_thread.start()
 
-    def load_vms(self):
+    def load_vms(self) -> None:
 
         # Load Virtual Machines Config
 
@@ -727,7 +727,7 @@ class MainWindow(QMainWindow):
 
         self.vms = sorted(self.vms, key=lambda vm: vm.path.lower())
 
-    def clear_password(self):
+    def clear_password(self) -> None:
 
         try:
             ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
@@ -735,12 +735,12 @@ class MainWindow(QMainWindow):
             pass
         self.saved_password = None
 
-    def show_warning(self, warning_str: tuple[str, str]):
+    def show_warning(self, warning_str: tuple[str, str]) -> None:
 
         print(f"{warning_str[0]}: {warning_str[1]}")
         QMessageBox.warning(self, warning_str[0], warning_str[1])
 
-    def load_vm_widgets(self):
+    def load_vm_widgets(self) -> None:
 
         # Display Virtual Machines
 
@@ -849,7 +849,7 @@ class MainWindow(QMainWindow):
 
         self.load_bars()
 
-    def load_bars(self):
+    def load_bars(self) -> None:
 
         # Set Sizes Bar Colors
 
@@ -898,12 +898,12 @@ class MainWindow(QMainWindow):
         self.layout_right_local.update()
         self.layout_right_server.update()
 
-    def raise_ssh_error(self, err: str):
+    def raise_ssh_error(self, err: str) -> None:
         error_message = QErrorMessage(self)
         error_message.showMessage(err)
         raise ValueError(err)
 
-    def load_settings(self):
+    def load_settings(self) -> None:
         """
         Load user settings from `PATH_SETTINGS`.
 
@@ -942,7 +942,7 @@ class MainWindow(QMainWindow):
             if setting not in self.settings.keys():
                 self.raise_ssh_error("Missing setting: " + setting)
 
-    def set_setting(self, setting: str, value: str):
+    def set_setting(self, setting: str, value: str) -> None:
         """
         Set user setting in `PATH_SETTINGS`.
 
@@ -961,12 +961,12 @@ class MainWindow(QMainWindow):
 
         self.settings[setting] = value
 
-    def show_info(self):
+    def show_info(self) -> None:
         """Open the info window."""
         info_window = InfoWindow(self)
         info_window.show()
 
-    def connect_ssh(self):
+    def connect_ssh(self) -> None:
 
         self.ssh = paramiko.SSHClient()
 
@@ -1103,7 +1103,7 @@ class MainWindow(QMainWindow):
 
         return icon + ".png"
 
-    def load_vm_widget(self, vm: VirtualMachine, load_value: int):
+    def load_vm_widget(self, vm: VirtualMachine, load_value: int) -> None:
 
         if load_value in (LOAD_VALUE.LOCAL, LOAD_VALUE.BOTH):
             spec = importlib.util.spec_from_file_location(
@@ -1142,7 +1142,7 @@ class MainWindow(QMainWindow):
         vm.widget.update()
         self.load_bars()
 
-    def start_pull_vm(self, vm: VirtualMachine):
+    def start_pull_vm(self, vm: VirtualMachine) -> None:
 
         # Connect SSH
 
@@ -1166,7 +1166,7 @@ class MainWindow(QMainWindow):
         self.vm_workers.append(vm_worker)
         vm_thread.start()
 
-    def pull_vm(self, vm: VirtualMachine):
+    def pull_vm(self, vm: VirtualMachine) -> None:
 
         if self.ssh is None:
             self.start_connect_ssh()
@@ -1196,7 +1196,7 @@ class MainWindow(QMainWindow):
 
         sftp.close()
 
-    def start_push_vm(self, vm: VirtualMachine):
+    def start_push_vm(self, vm: VirtualMachine) -> None:
 
         # Connect SSH
 
@@ -1235,7 +1235,7 @@ def format_size(size: int | None) -> str:
 
 # Main Function
 
-def main():
+def main() -> None:
     app = QApplication()
     window = MainWindow()
     window.show()
