@@ -146,10 +146,14 @@ class Worker(QObject):
 
     # Constructor
 
-    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None):
+    def __init__(self, MainWindow: MainWindow, thread: QThread, vm: VirtualMachine = None):
         super().__init__()
         self.MainWindow = MainWindow
         self.vm = vm
+        self.moveToThread(thread)
+        self.warning_signal.connect(MainWindow.show_warning)
+        self.finished.connect(thread.quit)
+        thread.finished.connect(self.deleteLater)
 
     # Functions
 
@@ -157,6 +161,19 @@ class Worker(QObject):
         self.MainWindow.ssh_thread.wait()
         self.MainWindow.load_vms()
         self.finished.emit()
+
+    def run(self, function: function):
+        try:
+            self.MainWindow.ssh_thread.wait()
+            print("hi")
+            if self.vm is not None:
+                function(self.vm)
+            else:
+                function()
+        except Exception as e:
+            self.warning_signal.emit(("Error", str(e)))
+        finally:
+            self.finished.emit()
 
     def connect_ssh(self):
         try:
@@ -528,6 +545,7 @@ class MainWindow(QMainWindow):
             lambda vm, load_value: self.load_vm_widget(vm, load_value)
         )
 
+        self.vm_threads: list[QThread] = []
         self.ssh = None
         self.start_load_vms()
 
@@ -556,12 +574,13 @@ class MainWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-        try:
-            if self.vm_thread is not None and self.vm_thread.isRunning():
-                self.vm_thread.quit()
-                self.vm_thread.wait()
-        except (RuntimeError, AttributeError):
-            pass
+        for thread in self.vm_threads:
+            try:
+                if thread is not None and thread.isRunning():
+                    thread.quit()
+                    thread.wait()
+            except (RuntimeError, AttributeError):
+                pass
 
     # Functions
 
@@ -574,15 +593,14 @@ class MainWindow(QMainWindow):
 
         # Load Virtual Machines
 
-        self.vm_thread = QThread()
-        self.vm_worker = Worker(self)
-        self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.load_vms)
-        self.vm_worker.warning_signal.connect(self.show_warning)
-        self.vm_worker.finished.connect(self.vm_thread.quit)
-        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
-        self.vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
-        self.vm_thread.start()
+        vm_thread = QThread()
+        vm_worker = Worker(self, vm_thread)
+
+        vm_thread.started.connect(lambda: vm_worker.run(self.load_vms))
+        # vm_thread.started.connect(vm_worker.load_vms)
+        vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
+        self.vm_threads.append(vm_thread)
+        vm_thread.start()
 
     def start_connect_ssh(self):
 
@@ -633,12 +651,8 @@ class MainWindow(QMainWindow):
         # Connect SSH
 
         self.ssh_thread = QThread()
-        self.ssh_worker = Worker(self)
-        self.ssh_worker.moveToThread(self.ssh_thread)
-        self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
-        self.ssh_worker.warning_signal.connect(self.show_warning)
-        self.ssh_worker.finished.connect(self.ssh_thread.quit)
-        self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
+        ssh_worker = Worker(self, self.ssh_thread)
+        self.ssh_thread.started.connect(ssh_worker.connect_ssh)
         self.ssh_thread.start()
 
     def load_vms(self):
@@ -1133,17 +1147,15 @@ class MainWindow(QMainWindow):
 
         # Pull Virtual Machine
 
-        self.vm_thread = QThread()
-        self.vm_worker = Worker(self, vm)
-        self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.pull_vm)
-        self.vm_worker.warning_signal.connect(self.show_warning)
-        self.vm_worker.finished.connect(self.vm_thread.quit)
-        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
-        self.vm_thread.finished.connect(
+        vm_thread = QThread()
+        vm_worker = Worker(self, vm_thread, vm)
+        vm_thread.started.connect(lambda: vm_worker.run(self.pull_vm))
+        # vm_thread.started.connect(vm_worker.pull_vm)
+        vm_thread.finished.connect(
             lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.LOCAL)
         )
-        self.vm_thread.start()
+        self.vm_threads.append(vm_thread)
+        vm_thread.start()
 
     def pull_vm(self, vm: VirtualMachine):
 
@@ -1184,17 +1196,16 @@ class MainWindow(QMainWindow):
 
         # Push Virtual Machine
 
-        self.vm_thread = QThread()
-        self.vm_worker = Worker(self, vm)
-        self.vm_worker.moveToThread(self.vm_thread)
-        self.vm_thread.started.connect(self.vm_worker.push_vm)
+        vm_thread = QThread()
+        vm_worker = Worker(self, vm_thread, vm)
+        vm_thread.started.connect(lambda: vm_worker.run(self.push_vm))
+        # vm_thread.started.connect(vm_worker.push_vm)
         self.vm_worker.warning_signal.connect(self.show_warning)
-        self.vm_worker.finished.connect(self.vm_thread.quit)
-        self.vm_thread.finished.connect(self.vm_worker.deleteLater)
-        self.vm_thread.finished.connect(
+        vm_thread.finished.connect(
             lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.SERVER)
         )
-        self.vm_thread.start()
+        self.vm_threads.append(vm_thread)
+        vm_thread.start()
 
 # Functions
 
