@@ -1,9 +1,7 @@
-fix bar widths
 add push function
 add delete function
 add pull_vms, push_vms
-add update_vm_local, update_vm_server
-add update_vms_local, update_vms_server
+add load_vm
 
 make load_bars faster (don't recalculate everything)
 
@@ -15,5 +13,5 @@ create icons
 add tooltips
 
 add styles to everything
-reorder functions
-reorder signals
+add docstrings
+add comments

@@ -91,7 +91,7 @@ SSH_AUTH_METHODS = ("Password", "Loaded Key", "Public Key", "Private Key")
 SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
 ICON_NAMES = {
-    "debian": ["debian", "ubuntu"],
+    "debian": ("debian", "ubuntu"),
 
 }
 
@@ -101,101 +101,37 @@ icons_dict: dict[str, str] = {}
 # Enums
 
 class SSH_AUTH_METHOD(enum.IntEnum):
+
     PASSWORD = 0
     LOADED_KEY = 1
     PUBLIC_KEY = 2
     PRIVATE_KEY = 3
 
 class LOAD_VALUE(enum.IntEnum):
+
     LOCAL = 0
     SERVER = 1
     BOTH = 2
 
 class TASK_TYPE(enum.IntEnum):
+
     CONNECT_SSH = 0
+
     LOAD_VMS = 1
-    LOAD_VM = 2
-    PULL_VMS = 3
-    PULL_VM = 4
-    PUSH_VMS = 5
-    PUSH_VM = 6
-    UPDATE_VMS_LOCAL = 7
-    UPDATE_VMS_SERVER = 8
-    UPDATE_VM_LOCAL = 9
-    UPDATE_VM_SERVER = 10
+    LOAD_VM_LOCAL = 2
+    LOAD_VM_SERVER = 3
+
+    PULL_VMS = 4
+    PULL_VM = 5
+
+    PUSH_VMS = 6
+    PUSH_VM = 7
+
+    DELETE_VM_LOCAL = 8
+    DELETE_VM_REMOTE = 9
 
 
 # Classes
-
-# Virtual Machine
-
-class VirtualMachine:
-
-    def __init__(
-        self, path: str, icon: str,
-        local_size: int | None = None, server_size: int | None = None,
-        local_md5: str | None = None, server_md5: str | None = None
-    ) -> None:
-        self.name = os.path.basename(path)
-        self.path = path
-        self.icon = icon
-        self.local_size = local_size
-        self.server_size = server_size
-        self.local_md5 = local_md5
-        self.server_md5 = server_md5
-        self.widget: QWidget = None
-
-    def md5_match(self) -> bool:
-        if self.local_md5 is None or self.server_md5 is None:
-            return False
-        return self.local_md5 == self.server_md5
-
-# Worker
-
-class Worker(QObject):
-
-    finished = Signal()
-    warning_signal = Signal(tuple[str, str])
-
-    # Constructor
-
-    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None) -> None:
-        super().__init__()
-        self.MainWindow = MainWindow
-        self.vm = vm
-
-    # Functions
-
-    def load_vms(self) -> None:
-        self.MainWindow.ssh_thread.wait()
-        self.MainWindow.load_vms()
-        self.finished.emit()
-
-    def run(self, function: function) -> None:
-        try:
-            self.MainWindow.ssh_thread.wait()
-            if self.vm is not None:
-                function(self.vm)
-            else:
-                function()
-        except Exception as e:
-            self.warning_signal.emit(("Error", str(e)))
-        finally:
-            self.finished.emit()
-
-    def connect_ssh(self) -> None:
-        try:
-            self.MainWindow.connect_ssh()
-        except Exception as e:
-            self.warning_signal.emit(("Error Connecting to SSH", str(e)))
-            self.MainWindow.ssh = None
-        finally:
-            self.finished.emit()
-
-    def pull_vm(self) -> None:
-        self.MainWindow.ssh_thread.wait()
-        self.MainWindow.pull_vm(self.vm)
-        self.finished.emit()
 
 # Info Window
 
@@ -316,6 +252,113 @@ class InfoWindow(QMainWindow):
             self.doc_viewer.setMarkdown("")
             self.doc_viewer.setText(contents)
 
+# Virtual Machine
+
+class VirtualMachine:
+
+    def __init__(
+        self, path: str, icon: str,
+        local_size: int | None = None, server_size: int | None = None,
+        local_md5: str | None = None, server_md5: str | None = None
+    ) -> None:
+
+        self.name = os.path.basename(path)
+        self.path = path
+        self.icon = icon
+        self.local_size = local_size
+        self.server_size = server_size
+        self.local_md5 = local_md5
+        self.server_md5 = server_md5
+        self.widget: QWidget = None
+
+    def md5_match(self) -> bool:
+
+        if self.local_md5 is None or self.server_md5 is None:
+            return False
+        return self.local_md5 == self.server_md5
+
+    def set_md5_label_text(self) -> None:
+
+        self.md5_label.setText("Local =" + ("=" if self.md5_match() else "/") + "= Remote")
+
+# Worker
+
+class Worker(QObject):
+
+    finished = Signal()
+    warning_signal = Signal(tuple[str, str])
+
+    # Constructor
+
+    def __init__(self, MainWindow: MainWindow, vm: VirtualMachine = None) -> None:
+
+        super().__init__()
+
+        self.MainWindow = MainWindow
+        self.vm = vm
+
+    # Functions
+
+    def connect_ssh(self) -> None:
+
+        try:
+            self.MainWindow.connect_ssh()
+        except Exception as e:
+            self.warning_signal.emit(("Error Connecting to SSH", str(e)))
+            self.MainWindow.ssh = None
+        finally:
+            self.finished.emit()
+
+    def load_vms(self) -> None:
+
+        self.MainWindow.ssh_thread.wait()
+        self.MainWindow.load_vms()
+        self.finished.emit()
+
+    def pull_vm(self) -> None:
+
+        self.MainWindow.ssh_thread.wait()
+        self.MainWindow.pull_vm(self.vm)
+        self.finished.emit()
+
+# Task
+
+class Task:
+
+    def __init__(self, task_type: int, vm: VirtualMachine | None = None) -> None:
+
+        self.task_type = task_type
+        self.vm = vm
+        match task_type:
+            case TASK_TYPE.CONNECT_SSH:
+                self.task_str = "Connect SSH"
+                label_str = "Connecting to SSH..."
+            case TASK_TYPE.LOAD_VMS:
+                self.task_str = "Load VMs"
+                label_str = "Loading virtual machines..."
+            case TASK_TYPE.LOAD_VM_LOCAL:
+                self.task_str = f"Load VM {vm.name} (local)"
+                label_str = f"Loading virtual machine {vm.name} (local)..."
+            case TASK_TYPE.LOAD_VM_SERVER:
+                self.task_str = f"Load VM {vm.name} (remote)"
+                label_str = f"Loading virtual machine {vm.name} (remote)..."
+            case TASK_TYPE.PULL_VMS:
+                self.task_str = "Pull VMs"
+                label_str = "Pulling virtual machines..."
+            case TASK_TYPE.PULL_VM:
+                self.task_str = "Pull VM " + vm.name
+                label_str = f"Pulling virtual machine {vm.name}..."
+            case TASK_TYPE.PUSH_VMS:
+                self.task_str = "Push VMs"
+                label_str = "Pushing virtual machines..."
+            case TASK_TYPE.PUSH_VM:
+                self.task_str = "Push VM " + vm.name
+                label_str = f"Pushing virtual machine {vm.name}..."
+            case _:
+                self.task_str = "unknown task"
+                label_str = "Unknown task..."
+        self.label = QLabel(label_str)
+
 # Bar
 
 class Bar(QLabel):
@@ -333,64 +376,18 @@ class Bar(QLabel):
             self.bar_size = -1
             self.setFixedWidth(0)
 
-# Task
-
-class Task:
-
-    def __init__(self, task_type: int, vm: VirtualMachine | None = None) -> None:
-
-        self.task_type = task_type
-        self.vm = vm
-        match task_type:
-            case TASK_TYPE.CONNECT_SSH:
-                self.task_str = "Connect SSH"
-                label_str = "Connecting to SSH..."
-            case TASK_TYPE.LOAD_VMS:
-                self.task_str = "Load VMs"
-                label_str = "Loading virtual machines..."
-            case TASK_TYPE.LOAD_VM:
-                self.task_str = "Load VM " + vm.name
-                label_str = f"Loading virtual machine {vm.name}..."
-            case TASK_TYPE.PULL_VMS:
-                self.task_str = "Pull VMs"
-                label_str = "Pulling virtual machines..."
-            case TASK_TYPE.PULL_VM:
-                self.task_str = "Pull VM " + vm.name
-                label_str = f"Pulling virtual machine {vm.name}..."
-            case TASK_TYPE.PUSH_VMS:
-                self.task_str = "Push VMs"
-                label_str = "Pushing virtual machines..."
-            case TASK_TYPE.PUSH_VM:
-                self.task_str = "Push VM " + vm.name
-                label_str = f"Pushing virtual machine {vm.name}..."
-            case TASK_TYPE.UPDATE_VMS_LOCAL:
-                self.task_str = "Update local VMs"
-                label_str = "Updating local virtual machines..."
-            case TASK_TYPE.UPDATE_VMS_SERVER:
-                self.task_str = "Update remote VMs"
-                label_str = "Updating remote virtual machines..."
-            case TASK_TYPE.UPDATE_VM_LOCAL:
-                self.task_str = "Update local VM " + vm.name
-                label_str = f"Updating local virtual machine {vm.name}..."
-            case TASK_TYPE.UPDATE_VM_SERVER:
-                self.task_str = "Update remote VM " + vm.name
-                label_str = f"Updating remote virtual machine {vm.name}..."
-            case _:
-                self.task_str = "unknown task"
-                label_str = "Unknown task..."
-        self.label = QLabel(label_str)
-
 # Main Window
 
 class MainWindow(QMainWindow):
 
     # Signals
 
-    load_vm_widgets_signal = Signal()
     warning_signal = Signal(str)
     raise_ssh_error_signal = Signal(str)
-    load_vm_widget_signal = Signal(VirtualMachine, int)
+
     load_vms_signal = Signal()
+    load_vm_widgets_signal = Signal()
+    load_vm_widget_signal = Signal(VirtualMachine, int)
 
     # Constructor
 
@@ -528,11 +525,8 @@ class MainWindow(QMainWindow):
         self.pull_all_button = QPushButton("Pull All")
         self.layout_vm_buttons.addWidget(self.pull_all_button)
 
-        self.update_all_local_button = QPushButton("Update All (Local)")
-        self.layout_vm_buttons.addWidget(self.update_all_local_button)
-
-        self.update_all_server_button = QPushButton("Update All (Remote)")
-        self.layout_vm_buttons.addWidget(self.update_all_server_button)
+        self.update_all_button = QPushButton("Update All")
+        self.layout_vm_buttons.addWidget(self.update_all_button)
 
         self.layout_center.addLayout(self.layout_vm_buttons)
 
@@ -607,6 +601,7 @@ class MainWindow(QMainWindow):
 
         self.warning_signal.connect(self.show_warning)
         self.raise_ssh_error_signal.connect(self.raise_ssh_error)
+    
         self.load_vms_signal.connect(self.start_load_vms)
         self.load_vm_widgets_signal.connect(self.load_vm_widgets)
         self.load_vm_widget_signal.connect(
@@ -654,6 +649,103 @@ class MainWindow(QMainWindow):
 
     # Functions
 
+    # Errors and Warnings
+
+    def show_warning(self, warning_str: tuple[str, str]) -> None:
+
+        print(f"{warning_str[0]}: {warning_str[1]}")
+        QMessageBox.warning(self, warning_str[0], warning_str[1])
+
+    def show_already_running(self, task: Task) -> None:
+
+        message_str = f"Already running task: {task.task_str}."
+        print(message_str)
+        QMessageBox.warning(self, "Task Already Running", message_str)
+
+    def raise_ssh_error(self, err: str) -> None:
+
+        error_message = QErrorMessage(self)
+        error_message.showMessage(err)
+        raise ValueError(err)
+
+    # Settings
+
+    def load_settings(self) -> None:
+        """
+        Load user settings from `PATH_SETTINGS`.
+
+        :return: An instance of the `Settings` class containing the loaded settings.
+        """
+
+        self.settings = {}
+
+        if not os.path.exists(PATH_SETTINGS):
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
+
+        with open(PATH_SETTINGS, "r") as file:
+            for line in file:
+
+                if line[0] in ("#", "\n"):
+                    continue
+
+                line = line.strip()
+                if line.endswith("="):
+                    self.settings[line[:-1]] = ""
+                    continue
+                setting, value = line.split("=")
+
+                if setting in ("ssh_auth_method", "ssh_timeout"):
+                    value = int(value)
+                self.settings[setting] = value
+
+        for setting in (
+            "ssh_auth_method", "ssh_key_type", "ssh_timeout",
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
+            "vm_ext", "vm_hashfile_path"
+        ):
+            if setting not in self.settings.keys():
+                self.raise_ssh_error("Missing setting: " + setting)
+
+    def set_setting(self, setting: str, value: str) -> None:
+        """
+        Set user setting in `PATH_SETTINGS`.
+
+        :param setting: The setting to set.
+        :param value: The value to set `setting` to.
+        """
+
+        if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
+
+        with open(PATH_SETTINGS, "r+") as file:
+            pass
+
+        self.settings[setting] = value
+
+    # SSH
+
+    def ssh_path_found(self, path: str, type: str = "e") -> bool:
+
+        if path[0] == "~":
+            path = path.replace("~", "/home/" + self.settings["server_username"], 1)
+        return "found" in self.ssh_exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")
+
+    def ssh_exec_command(self, command: str) -> str:
+
+        stdout, stderr = self.ssh.exec_command(command)[1:]
+        stderr_data = stderr.read()
+        if stderr_data:
+            self.raise_ssh_error_signal.emit(f"Error with ssh command \"{command}\": {stderr_data}")
+        return stdout.read().decode()
+
+    # Task Control
+
     def add_task(self, task: Task) -> None:
 
         self.tasks.append(task)
@@ -673,39 +765,9 @@ class MainWindow(QMainWindow):
             if task.task_type == compare_task.task_type and task.vm == compare_task.vm:
                 return True
 
-    def start_load_vms(self) -> None:
+    # Tasks
 
-        # Connect SSH
-
-        if self.ssh is None:
-            self.start_connect_ssh()
-
-        # Load Virtual Machines
-
-        task = Task(TASK_TYPE.LOAD_VMS)
-
-        if not self.check_tasks(task):
-
-            vm_thread = QThread(self)
-            vm_worker = Worker(self)
-            vm_worker.moveToThread(vm_thread)
-        
-            vm_worker.warning_signal.connect(self.show_warning)
-            # vm_thread.started.connect(lambda: vm_worker.run(self.load_vms))
-            vm_thread.started.connect(vm_worker.load_vms)
-            vm_worker.finished.connect(vm_thread.quit)
-            vm_thread.finished.connect(vm_worker.deleteLater)
-            vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
-            vm_thread.finished.connect(lambda: self.remove_task(task))
-
-            self.vm_threads.append(vm_thread)
-            self.vm_workers.append(vm_worker)
-            self.add_task(task)
-            vm_thread.start()
-
-        else:
-
-            self.show_already_running(task)
+    # Connect SSH
 
     def start_connect_ssh(self) -> None:
 
@@ -771,6 +833,114 @@ class MainWindow(QMainWindow):
 
             self.add_task(task)
             self.ssh_thread.start()
+
+        else:
+
+            self.show_already_running(task)
+
+    def connect_ssh(self) -> None:
+
+        self.ssh = paramiko.SSHClient()
+
+        password = None
+        pkey = None
+
+        # Password Connection
+
+        if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PASSWORD:
+            if self.saved_password is None:
+                raise ValueError("Auth type is password and no password given.")
+            password = self.saved_password
+
+        # Key Connection
+
+        elif self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.LOADED_KEY:
+            self.ssh.load_system_host_keys()
+            self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+        else:
+            if (
+                self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY and
+                self.saved_password is None
+            ):
+                raise ValueError("Auth type requires password and no password given.")
+            if self.settings["ssh_key_type"] == "RSA":
+                key = paramiko.RSAKey.from_private_key_file(
+                    self.settings["ssh_key_path"], self.saved_password
+                )
+            elif self.settings["ssh_key_type"] == "ECDSA":
+                key = paramiko.ECDSAKey.from_private_key_file(
+                    self.settings["ssh_key_path"], self.saved_password
+                )
+            else:
+                key = paramiko.Ed25519Key.from_private_key_file(
+                    self.settings["ssh_key_path"], self.saved_password
+                )
+            self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            pkey = key
+
+        self.ssh.connect(
+            hostname=self.settings["server_hostname"], username=self.settings["server_username"],
+            password=password, pkey=pkey,
+            timeout=self.settings["ssh_timeout"], banner_timeout=self.settings["ssh_timeout"],
+            auth_timeout=self.settings["ssh_timeout"]
+        )
+
+        # Install Any Missing Scripts
+
+        if not self.ssh_path_found(PATH_SERVER_SCRIPTS, "d"):
+            self.ssh_exec_command("mkdir -p " + PATH_SERVER_SCRIPTS)
+
+        sftp = self.ssh.open_sftp()
+
+        for script in os.listdir(PATH_SCRIPTS):
+            local_path = os.path.join(PATH_SCRIPTS, script)
+            if (
+                (not os.path.isfile(local_path)) or
+                ((not RELEASE_PATHS) and script.endswith(os.path.basename(__file__)))
+            ):
+                continue
+            server_path = (
+                os.path.join(PATH_SERVER_SCRIPTS, script).replace(
+                    "~", "/home/" + self.settings["server_username"], 1
+                )
+            )
+            if not self.ssh_path_found(server_path):
+                sftp.put(local_path, server_path)
+
+        sftp.close()
+
+    # Load VMs
+
+    def start_load_vms(self) -> None:
+
+        # Connect SSH
+
+        if self.ssh is None:
+            self.start_connect_ssh()
+
+        # Load Virtual Machines
+
+        task = Task(TASK_TYPE.LOAD_VMS)
+
+        if not self.check_tasks(task):
+
+            vm_thread = QThread(self)
+            vm_worker = Worker(self)
+            vm_worker.moveToThread(vm_thread)
+        
+            vm_worker.warning_signal.connect(self.show_warning)
+            # vm_thread.started.connect(lambda: vm_worker.run(self.load_vms))
+            vm_thread.started.connect(vm_worker.load_vms)
+            vm_worker.finished.connect(vm_thread.quit)
+            vm_thread.finished.connect(vm_worker.deleteLater)
+            vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
+            vm_thread.finished.connect(lambda: self.remove_task(task))
+
+            self.vm_threads.append(vm_thread)
+            self.vm_workers.append(vm_worker)
+            self.add_task(task)
+            vm_thread.start()
 
         else:
 
@@ -844,26 +1014,6 @@ class MainWindow(QMainWindow):
 
         self.vms = sorted(self.vms, key=lambda vm: vm.path.lower())
 
-    def clear_password(self) -> None:
-
-        try:
-            ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
-        except AttributeError:
-            pass
-        self.saved_password = None
-
-    def show_warning(self, warning_str: tuple[str, str]) -> None:
-
-        print(f"{warning_str[0]}: {warning_str[1]}")
-        QMessageBox.warning(self, warning_str[0], warning_str[1])
-
-    def show_already_running(self, task: Task) -> None:
-
-        QMessageBox.warning(
-            self, "Task Already Running",
-            f"Already running task: {task.task_str}."
-        )
-
     def load_vm_widgets(self) -> None:
 
         # Display Virtual Machines
@@ -884,9 +1034,8 @@ class MainWindow(QMainWindow):
 
             vm.layout_top.addWidget(QLabel(vm.name))
 
-            vm.md5_label = QLabel(
-                "Local =" + ("=" if vm.md5_match() else "/") + "= Remote"
-            )
+            vm.md5_label = QLabel()
+            vm.set_md5_label_text()
             vm.layout_top.addWidget(vm.md5_label)
 
             vm.layout_back.addLayout(vm.layout_top)
@@ -1022,210 +1171,7 @@ class MainWindow(QMainWindow):
         self.layout_right_local.update()
         self.layout_right_server.update()
 
-    def raise_ssh_error(self, err: str) -> None:
-        error_message = QErrorMessage(self)
-        error_message.showMessage(err)
-        raise ValueError(err)
-
-    def load_settings(self) -> None:
-        """
-        Load user settings from `PATH_SETTINGS`.
-
-        :return: An instance of the `Settings` class containing the loaded settings.
-        """
-
-        self.settings = {}
-
-        if not os.path.exists(PATH_SETTINGS):
-            settings_dir = os.path.dirname(PATH_SETTINGS)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
-
-        with open(PATH_SETTINGS, "r") as file:
-            for line in file:
-
-                if line[0] in ("#", "\n"):
-                    continue
-
-                line = line.strip()
-                if line.endswith("="):
-                    self.settings[line[:-1]] = ""
-                    continue
-                setting, value = line.split("=")
-
-                if setting in ("ssh_auth_method", "ssh_timeout"):
-                    value = int(value)
-                self.settings[setting] = value
-
-        for setting in (
-            "ssh_auth_method", "ssh_key_type", "ssh_timeout",
-            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
-            "vm_ext", "vm_hashfile_path"
-        ):
-            if setting not in self.settings.keys():
-                self.raise_ssh_error("Missing setting: " + setting)
-
-    def set_setting(self, setting: str, value: str) -> None:
-        """
-        Set user setting in `PATH_SETTINGS`.
-
-        :param setting: The setting to set.
-        :param value: The value to set `setting` to.
-        """
-
-        if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
-            settings_dir = os.path.dirname(PATH_SETTINGS)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
-
-        with open(PATH_SETTINGS, "r+") as file:
-            pass
-
-        self.settings[setting] = value
-
-    def show_info(self) -> None:
-        """Open the info window."""
-        info_window = InfoWindow(self)
-        info_window.show()
-
-    def connect_ssh(self) -> None:
-
-        self.ssh = paramiko.SSHClient()
-
-        password = None
-        pkey = None
-
-        # Password Connection
-
-        if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PASSWORD:
-            if self.saved_password is None:
-                raise ValueError("Auth type is password and no password given.")
-            password = self.saved_password
-
-        # Key Connection
-
-        elif self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.LOADED_KEY:
-            self.ssh.load_system_host_keys()
-            self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
-
-        else:
-            if (
-                self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY and
-                self.saved_password is None
-            ):
-                raise ValueError("Auth type requires password and no password given.")
-            if self.settings["ssh_key_type"] == "RSA":
-                key = paramiko.RSAKey.from_private_key_file(
-                    self.settings["ssh_key_path"], self.saved_password
-                )
-            elif self.settings["ssh_key_type"] == "ECDSA":
-                key = paramiko.ECDSAKey.from_private_key_file(
-                    self.settings["ssh_key_path"], self.saved_password
-                )
-            else:
-                key = paramiko.Ed25519Key.from_private_key_file(
-                    self.settings["ssh_key_path"], self.saved_password
-                )
-            self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            pkey = key
-
-        self.ssh.connect(
-            hostname=self.settings["server_hostname"], username=self.settings["server_username"],
-            password=password, pkey=pkey,
-            timeout=self.settings["ssh_timeout"], banner_timeout=self.settings["ssh_timeout"],
-            auth_timeout=self.settings["ssh_timeout"]
-        )
-
-        # Install Any Missing Scripts
-
-        if not self.ssh_path_found(PATH_SERVER_SCRIPTS, "d"):
-            self.ssh_exec_command("mkdir -p " + PATH_SERVER_SCRIPTS)
-
-        sftp = self.ssh.open_sftp()
-
-        for script in os.listdir(PATH_SCRIPTS):
-            local_path = os.path.join(PATH_SCRIPTS, script)
-            if (
-                (not os.path.isfile(local_path)) or
-                ((not RELEASE_PATHS) and script.endswith(os.path.basename(__file__)))
-            ):
-                continue
-            server_path = (
-                os.path.join(PATH_SERVER_SCRIPTS, script).replace(
-                    "~", "/home/" + self.settings["server_username"], 1
-                )
-            )
-            if not self.ssh_path_found(server_path):
-                sftp.put(local_path, server_path)
-
-        sftp.close()
-
-    def ssh_path_found(self, path: str, type: str = "e") -> bool:
-        if path[0] == "~":
-            path = path.replace("~", "/home/" + self.settings["server_username"], 1)
-        return "found" in self.ssh_exec_command(f"if [ -{type} \"{path}\" ]; then echo found; fi")
-
-    def ssh_exec_command(self, command: str) -> str:
-        stdout, stderr = self.ssh.exec_command(command)[1:]
-        stderr_data = stderr.read()
-        if stderr_data:
-            self.raise_ssh_error_signal.emit(f"Error with ssh command \"{command}\": {stderr_data}")
-        return stdout.read().decode()
-
-    def get_icon(self, vms_path: str, vm_path: str) -> str:
-
-        # Check Saved Icons
-
-        global icons_dict
-        icon = icons_dict[vm_path] if vm_path in icons_dict.keys() else "unknown"
-
-        if icon == "unknown":
-
-            # Search Function
-
-            def search_icon_names(target):
-                nonlocal icon
-                for key in ICON_NAMES.keys():
-                    found = False
-                    for assoc_name in ICON_NAMES[key]:
-                        if assoc_name in target.lower():
-                            icon = key
-                            found = True
-                            break
-                    if found:
-                        break
-
-            # Compare with Name
-
-            search_icon_names(vm_path)
-
-            if icon == "unknown":
-
-                # Look for OS Type
-
-                os_type = None
-                search_path = os.path.join(vms_path, vm_path)
-                if os.path.exists(search_path):
-                    for path in os.listdir(search_path):
-                        if path.endswith(".vbox"):
-                            with open(os.path.join(search_path, path), "r") as file:
-                                for line in file.readlines():
-                                    if line.strip().startswith("<Machine"):
-                                        for word in line.strip().split(" "):
-                                            if word.startswith("OSType="):
-                                                os_type = word[7:].lower()
-                                                break
-                                        break
-                            break
-
-                # Compare with OS Type
-
-                if os_type is not None:
-                    search_icon_names(os_type)
-
-        return icon + ".png"
+    # Load VM
 
     def load_vm_widget(self, vm: VirtualMachine, load_value: int) -> None:
 
@@ -1262,9 +1208,13 @@ class MainWindow(QMainWindow):
             else:
                 print(vm_str)
 
-        vm.md5_label.setText("Local =" + ("=" if vm.md5_match() else "/") + "= Remote")
+        vm.set_md5_label_text()
         vm.widget.update()
         self.load_bars()
+
+    # Pull VMs
+
+    # Pull VM
 
     def start_pull_vm(self, vm: VirtualMachine) -> None:
 
@@ -1335,6 +1285,10 @@ class MainWindow(QMainWindow):
 
         sftp.close()
 
+    # Push VMs
+
+    # Push VM
+
     def start_push_vm(self, vm: VirtualMachine) -> None:
 
         vm.push_button.setEnabled(False)
@@ -1375,9 +1329,81 @@ class MainWindow(QMainWindow):
 
             self.show_already_running(task)
 
+    # Other
+
+    def show_info(self) -> None:
+        """Open the info window."""
+
+        info_window = InfoWindow(self)
+        info_window.show()
+
+    def clear_password(self) -> None:
+
+        try:
+            ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
+        except AttributeError:
+            pass
+        finally:
+            self.saved_password = None
+
+    def get_icon(self, vms_path: str, vm_path: str) -> str:
+
+        # Check Saved Icons
+
+        global icons_dict
+        icon = icons_dict[vm_path] if vm_path in icons_dict.keys() else "unknown"
+
+        if icon == "unknown":
+
+            # Search Function
+
+            def search_icon_names(target):
+                nonlocal icon
+                for key in ICON_NAMES.keys():
+                    found = False
+                    for assoc_name in ICON_NAMES[key]:
+                        if assoc_name in target.lower():
+                            icon = key
+                            found = True
+                            break
+                    if found:
+                        break
+
+            # Compare with Name
+
+            search_icon_names(vm_path)
+
+            if icon == "unknown":
+
+                # Look for OS Type
+
+                os_type = None
+                search_path = os.path.join(vms_path, vm_path)
+                if os.path.exists(search_path):
+                    for path in os.listdir(search_path):
+                        if path.endswith(".vbox"):
+                            with open(os.path.join(search_path, path), "r") as file:
+                                for line in file.readlines():
+                                    if line.strip().startswith("<Machine"):
+                                        for word in line.strip().split(" "):
+                                            if word.startswith("OSType="):
+                                                os_type = word[7:].lower()
+                                                break
+                                        break
+                            break
+
+                # Compare with OS Type
+
+                if os_type is not None:
+                    search_icon_names(os_type)
+
+        return icon + ".png"
+
+
 # Functions
 
 def format_size(size: int | None) -> str:
+
     if size is None:
         return "Nonexistent"
     suffixes = ("B", "kiB", "MiB", "GiB", "TiB", "PiB", "EiB")
@@ -1390,6 +1416,7 @@ def format_size(size: int | None) -> str:
 # Main Function
 
 def main() -> None:
+
     app = QApplication()
     window = MainWindow()
     window.show()
