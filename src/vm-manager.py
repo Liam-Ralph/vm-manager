@@ -111,6 +111,19 @@ class LOAD_VALUE(enum.IntEnum):
     SERVER = 1
     BOTH = 2
 
+class TASK_TYPE(enum.IntEnum):
+    CONNECT_SSH = 0
+    LOAD_VMS = 1
+    LOAD_VM = 2
+    PULL_VMS = 3
+    PULL_VM = 4
+    PUSH_VMS = 5
+    PUSH_VM = 6
+    UPDATE_VMS_LOCAL = 7
+    UPDATE_VMS_SERVER = 8
+    UPDATE_VM_LOCAL = 9
+    UPDATE_VM_SERVER = 10
+
 
 # Classes
 
@@ -320,6 +333,53 @@ class Bar(QLabel):
             self.bar_size = -1
             self.setFixedWidth(0)
 
+# Task
+
+class Task:
+
+    def __init__(self, task_type: int, vm: VirtualMachine | None = None) -> None:
+
+        self.task_type = task_type
+        self.vm = vm
+        match task_type:
+            case TASK_TYPE.CONNECT_SSH:
+                self.task_str = "Connect SSH"
+                label_str = "Connecting to SSH..."
+            case TASK_TYPE.LOAD_VMS:
+                self.task_str = "Load VMs"
+                label_str = "Loading virtual machines..."
+            case TASK_TYPE.LOAD_VM:
+                self.task_str = "Load VM " + vm.name
+                label_str = f"Loading virtual machine {vm.name}..."
+            case TASK_TYPE.PULL_VMS:
+                self.task_str = "Pull VMs"
+                label_str = "Pulling virtual machines..."
+            case TASK_TYPE.PULL_VM:
+                self.task_str = "Pull VM " + vm.name
+                label_str = f"Pulling virtual machine {vm.name}..."
+            case TASK_TYPE.PUSH_VMS:
+                self.task_str = "Push VMs"
+                label_str = "Pushing virtual machines..."
+            case TASK_TYPE.PUSH_VM:
+                self.task_str = "Push VM " + vm.name
+                label_str = f"Pushing virtual machine {vm.name}..."
+            case TASK_TYPE.UPDATE_VMS_LOCAL:
+                self.task_str = "Update local VMs"
+                label_str = "Updating local virtual machines..."
+            case TASK_TYPE.UPDATE_VMS_SERVER:
+                self.task_str = "Update remote VMs"
+                label_str = "Updating remote virtual machines..."
+            case TASK_TYPE.UPDATE_VM_LOCAL:
+                self.task_str = "Update local VM " + vm.name
+                label_str = f"Updating local virtual machine {vm.name}..."
+            case TASK_TYPE.UPDATE_VM_SERVER:
+                self.task_str = "Update remote VM " + vm.name
+                label_str = f"Updating remote virtual machine {vm.name}..."
+            case _:
+                self.task_str = "unknown task"
+                label_str = "Unknown task..."
+        self.label = QLabel(label_str)
+
 # Main Window
 
 class MainWindow(QMainWindow):
@@ -468,8 +528,11 @@ class MainWindow(QMainWindow):
         self.pull_all_button = QPushButton("Pull All")
         self.layout_vm_buttons.addWidget(self.pull_all_button)
 
-        self.update_all_button = QPushButton("Update All")
-        self.layout_vm_buttons.addWidget(self.update_all_button)
+        self.update_all_local_button = QPushButton("Update All (Local)")
+        self.layout_vm_buttons.addWidget(self.update_all_local_button)
+
+        self.update_all_server_button = QPushButton("Update All (Remote)")
+        self.layout_vm_buttons.addWidget(self.update_all_server_button)
 
         self.layout_center.addLayout(self.layout_vm_buttons)
 
@@ -492,7 +555,7 @@ class MainWindow(QMainWindow):
 
         self.layout_middle.addWidget(self.layout_center_widget)
 
-        # Right (VM Sizes)
+        # Right
 
         self.layout_right_widget = QScrollArea()
         self.layout_right_widget.setWidgetResizable(True)
@@ -505,6 +568,16 @@ class MainWindow(QMainWindow):
         self.layout_right.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.layout_right_widget.setWidget(self.layout_right_content)
+
+        # Running Tasks
+
+        self.layout_right.addWidget(QLabel("Running Tasks", alignment=Qt.AlignmentFlag.AlignCenter))
+        self.tasks_widget = QWidget()
+        self.layout_running_tasks = QVBoxLayout(self.tasks_widget)
+        self.layout_running_tasks.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
+        self.layout_right.addWidget(self.tasks_widget)
+
+        # VM Sizes
 
         self.layout_right.addWidget(
             QLabel("Virtual Machine Sizes", alignment=Qt.AlignmentFlag.AlignCenter)
@@ -543,6 +616,7 @@ class MainWindow(QMainWindow):
         self.vm_threads: list[QThread] = []
         self.vm_workers: list[QObject] = []
         self.ssh = None
+        self.tasks: list[Task] = []
         self.start_load_vms()
 
     # Destructor
@@ -580,6 +654,25 @@ class MainWindow(QMainWindow):
 
     # Functions
 
+    def add_task(self, task: Task) -> None:
+
+        self.tasks.append(task)
+        self.layout_running_tasks.addWidget(task.label)
+        self.layout_running_tasks.update()
+
+    def remove_task(self, task: Task) -> None:
+
+        self.tasks.remove(task)
+        self.layout_running_tasks.removeWidget(task.label)
+        task.label.deleteLater()
+        self.layout_running_tasks.update()
+
+    def check_tasks(self, task: Task) -> bool:
+
+        for compare_task in self.tasks:
+            if task.task_type == compare_task.task_type and task.vm == compare_task.vm:
+                return True
+
     def start_load_vms(self) -> None:
 
         # Connect SSH
@@ -589,18 +682,30 @@ class MainWindow(QMainWindow):
 
         # Load Virtual Machines
 
-        vm_thread = QThread(self)
-        vm_worker = Worker(self)
-        vm_worker.moveToThread(vm_thread)
-        vm_worker.warning_signal.connect(self.show_warning)
-        # vm_thread.started.connect(lambda: vm_worker.run(self.load_vms))
-        vm_thread.started.connect(vm_worker.load_vms)
-        vm_worker.finished.connect(vm_thread.quit)
-        vm_thread.finished.connect(vm_worker.deleteLater)
-        vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
-        self.vm_threads.append(vm_thread)
-        self.vm_workers.append(vm_worker)
-        vm_thread.start()
+        task = Task(TASK_TYPE.LOAD_VMS)
+
+        if not self.check_tasks(task):
+
+            vm_thread = QThread(self)
+            vm_worker = Worker(self)
+            vm_worker.moveToThread(vm_thread)
+        
+            vm_worker.warning_signal.connect(self.show_warning)
+            # vm_thread.started.connect(lambda: vm_worker.run(self.load_vms))
+            vm_thread.started.connect(vm_worker.load_vms)
+            vm_worker.finished.connect(vm_thread.quit)
+            vm_thread.finished.connect(vm_worker.deleteLater)
+            vm_thread.finished.connect(self.load_vm_widgets_signal.emit)
+            vm_thread.finished.connect(lambda: self.remove_task(task))
+
+            self.vm_threads.append(vm_thread)
+            self.vm_workers.append(vm_worker)
+            self.add_task(task)
+            vm_thread.start()
+
+        else:
+
+            self.show_already_running(task)
 
     def start_connect_ssh(self) -> None:
 
@@ -650,14 +755,26 @@ class MainWindow(QMainWindow):
 
         # Connect SSH
 
-        self.ssh_thread = QThread(self)
-        self.ssh_worker = Worker(self)
-        self.ssh_worker.moveToThread(self.ssh_thread)
-        self.ssh_worker.warning_signal.connect(self.show_warning)
-        self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
-        self.ssh_worker.finished.connect(self.ssh_thread.quit)
-        self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
-        self.ssh_thread.start()
+        task = Task(TASK_TYPE.CONNECT_SSH)
+
+        if not self.check_tasks(task):
+
+            self.ssh_thread = QThread(self)
+            self.ssh_worker = Worker(self)
+            self.ssh_worker.moveToThread(self.ssh_thread)
+
+            self.ssh_worker.warning_signal.connect(self.show_warning)
+            self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
+            self.ssh_worker.finished.connect(self.ssh_thread.quit)
+            self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
+            self.ssh_thread.finished.connect(lambda: self.remove_task(task))
+
+            self.add_task(task)
+            self.ssh_thread.start()
+
+        else:
+
+            self.show_already_running(task)
 
     def load_vms(self) -> None:
 
@@ -739,6 +856,13 @@ class MainWindow(QMainWindow):
 
         print(f"{warning_str[0]}: {warning_str[1]}")
         QMessageBox.warning(self, warning_str[0], warning_str[1])
+
+    def show_already_running(self, task: Task) -> None:
+
+        QMessageBox.warning(
+            self, "Task Already Running",
+            f"Already running task: {task.task_str}."
+        )
 
     def load_vm_widgets(self) -> None:
 
@@ -1144,6 +1268,8 @@ class MainWindow(QMainWindow):
 
     def start_pull_vm(self, vm: VirtualMachine) -> None:
 
+        vm.pull_button.setEnabled(False)
+
         # Connect SSH
 
         if self.ssh is None:
@@ -1151,20 +1277,33 @@ class MainWindow(QMainWindow):
 
         # Pull Virtual Machine
 
-        vm_thread = QThread(self)
-        vm_worker = Worker(self, vm)
-        vm_worker.moveToThread(vm_thread)
-        vm_worker.warning_signal.connect(self.show_warning)
-        # vm_thread.started.connect(lambda: vm_worker.run(self.pull_vm))
-        vm_thread.started.connect(vm_worker.pull_vm)
-        vm_worker.finished.connect(vm_thread.quit)
-        vm_thread.finished.connect(vm_worker.deleteLater)
-        vm_thread.finished.connect(
-            lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.LOCAL)
-        )
-        self.vm_threads.append(vm_thread)
-        self.vm_workers.append(vm_worker)
-        vm_thread.start()
+        task = Task(TASK_TYPE.PULL_VM, vm)
+
+        if not self.check_tasks(task):
+
+            vm_thread = QThread(self)
+            vm_worker = Worker(self, vm)
+            vm_worker.moveToThread(vm_thread)
+
+            vm_worker.warning_signal.connect(self.show_warning)
+            # vm_thread.started.connect(lambda: vm_worker.run(self.pull_vm))
+            vm_thread.started.connect(vm_worker.pull_vm)
+            vm_worker.finished.connect(vm_thread.quit)
+            vm_thread.finished.connect(vm_worker.deleteLater)
+            vm_thread.finished.connect(
+                lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.LOCAL)
+            )
+            vm_thread.finished.connect(lambda: self.remove_task(task))
+            vm_thread.finished.connect(lambda: vm.pull_button.setEnabled(True))
+
+            self.vm_threads.append(vm_thread)
+            self.vm_workers.append(vm_worker)
+            self.add_task(task)
+            vm_thread.start()
+
+        else:
+
+            self.show_already_running(task)
 
     def pull_vm(self, vm: VirtualMachine) -> None:
 
@@ -1198,6 +1337,8 @@ class MainWindow(QMainWindow):
 
     def start_push_vm(self, vm: VirtualMachine) -> None:
 
+        vm.push_button.setEnabled(False)
+
         # Connect SSH
 
         if self.ssh is None:
@@ -1205,21 +1346,34 @@ class MainWindow(QMainWindow):
 
         # Push Virtual Machine
 
-        vm_thread = QThread(self)
-        vm_worker = Worker(self, vm)
-        vm_worker.moveToThread(vm_thread)
-        vm_worker.warning_signal.connect(self.show_warning)
-        # vm_thread.started.connect(lambda: vm_worker.run(self.push_vm))
-        vm_thread.started.connect(vm_worker.push_vm)
-        vm_worker.warning_signal.connect(self.show_warning)
-        vm_worker.finished.connect(vm_thread.quit)
-        vm_thread.finished.connect(vm_worker.deleteLater)
-        vm_thread.finished.connect(
-            lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.SERVER)
-        )
-        self.vm_threads.append(vm_thread)
-        self.vm_workers.append(vm_worker)
-        vm_thread.start()
+        task = Task(TASK_TYPE.PUSH_VM, vm)
+
+        if not self.check_tasks(task):
+
+            vm_thread = QThread(self)
+            vm_worker = Worker(self, vm)
+            vm_worker.moveToThread(vm_thread)
+
+            vm_worker.warning_signal.connect(self.show_warning)
+            # vm_thread.started.connect(lambda: vm_worker.run(self.push_vm))
+            vm_thread.started.connect(vm_worker.push_vm)
+            vm_worker.warning_signal.connect(self.show_warning)
+            vm_worker.finished.connect(vm_thread.quit)
+            vm_thread.finished.connect(vm_worker.deleteLater)
+            vm_thread.finished.connect(
+                lambda: self.load_vm_widget_signal.emit(vm, LOAD_VALUE.SERVER)
+            )
+            vm_thread.finished.connect(lambda: self.remove_task(task))
+            vm_thread.finished.connect(lambda: vm.push_button.setEnabled(True))
+
+            self.vm_threads.append(vm_thread)
+            self.vm_workers.append(vm_worker)
+            self.add_task(task)
+            vm_thread.start()
+
+        else:
+
+            self.show_already_running(task)
 
 # Functions
 

@@ -1,8 +1,9 @@
-add in progress indicator
-add push and pull functions
+fix bar widths
+add push function
 add delete function
 add pull_vms, push_vms
-prevent duplicate runs (i.e. pulling the same vm twice)
+add update_vm_local, update_vm_server
+add update_vms_local, update_vms_server
 
 make load_bars faster (don't recalculate everything)
 
