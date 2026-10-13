@@ -612,6 +612,7 @@ class MainWindow(QMainWindow):
         self.vm_workers: list[QObject] = []
         self.ssh = None
         self.tasks: list[Task] = []
+        self.saved_password = None
         self.start_load_vms()
 
     # Destructor
@@ -1339,11 +1340,8 @@ class MainWindow(QMainWindow):
 
     def clear_password(self) -> None:
 
-        try:
+        if self.saved_password is not None:
             ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
-        except AttributeError:
-            pass
-        finally:
             self.saved_password = None
 
     def get_icon(self, vms_path: str, vm_path: str) -> str:

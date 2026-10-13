@@ -1,9 +1,13 @@
+fix error when pressing button too many times
+remove thread and worker from vm_threads/vm_workers when done
+
 add push function
 add delete function
 add pull_vms, push_vms
 add load_vm
 
 make load_bars faster (don't recalculate everything)
+limit number of open InfoWindows
 
 add ssh info
 finish set_setting
