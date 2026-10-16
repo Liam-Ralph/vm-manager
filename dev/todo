@@ -1,3 +1,6 @@
+add settings valid indication for connecting to ssh
+add ssh connected indication
+
 fix error when pressing button too many times
 remove thread and worker from vm_threads/vm_workers when done
 

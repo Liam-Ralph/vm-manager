@@ -87,7 +87,20 @@ with open(PATH_DOC + "/README.md", "r") as file:
         file.readline()
     VERSION = file.readline()[12:]
 
-SSH_AUTH_METHODS = ("Password", "Loaded Key", "Public Key", "Private Key")
+SETTING_TYPES = {
+    "ssh_auth_method": int,
+    "ssh_key_type": str,
+    "ssh_key_path": str,
+    "ssh_timeout": int,
+    "server_hostname": str,
+    "server_username": str,
+    "local_vms_path": str,
+    "server_vms_path": str,
+    "vm_ext": str,
+    "vm_hashfile_path": str
+}
+
+SSH_AUTH_METHOD_STRS = ("Password", "Loaded Key", "Encrypted Key", "Unencrypted Key")
 SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
 
 ICON_NAMES = {
@@ -104,8 +117,8 @@ class SSH_AUTH_METHOD(enum.IntEnum):
 
     PASSWORD = 0
     LOADED_KEY = 1
-    PUBLIC_KEY = 2
-    PRIVATE_KEY = 3
+    ENCRYPTED_KEY = 2
+    UNENCRYPTED_KEY = 3
 
 class LOAD_VALUE(enum.IntEnum):
 
@@ -163,6 +176,14 @@ class InfoWindow(QMainWindow):
         self.window = QWidget()
         self.layout_back = QVBoxLayout(self.window)
         self.setCentralWidget(self.window)
+
+        # Task and SSH Members
+
+        self.vm_threads: list[QThread] = []
+        self.vm_workers: list[QObject] = []
+        self.ssh = None
+        self.tasks: list[Task] = []
+        self.saved_password = None
 
         # Project Info
 
@@ -413,7 +434,30 @@ class MainWindow(QMainWindow):
 
         # Load Settings
 
-        self.load_settings()
+        self.settings = {}
+        for key in SETTING_TYPES.keys():
+            self.settings[key] = None
+
+        if not os.path.exists(PATH_SETTINGS):
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
+
+        with open(PATH_SETTINGS, "r") as file:
+            for line in file.readlines():
+                if line[0] in ("#", "\n") or "=" not in line:
+                    continue
+                setting, value = line.strip().split("=", 1)
+                if setting in SETTING_TYPES.keys():
+                    self.settings[setting] = SETTING_TYPES[setting](value)
+
+        if None in self.settings.items():
+            QMessageBox.warning(
+                parent = self,
+                title = "Missing Setting(s)",
+                text = "Missing setting(s) when reading settings file at " + PATH_SETTINGS + "."
+            )
 
         # Top
 
@@ -439,7 +483,7 @@ class MainWindow(QMainWindow):
 
         self.layout_left.addWidget(QLabel("SSH Authentication Method"))
         self.ssh_auth_method_combo = QComboBox()
-        self.ssh_auth_method_combo.addItems(SSH_AUTH_METHODS)
+        self.ssh_auth_method_combo.addItems(SSH_AUTH_METHOD_STRS)
         self.ssh_auth_method_combo.setCurrentIndex(self.settings["ssh_auth_method"])
         self.layout_left.addWidget(self.ssh_auth_method_combo)
 
@@ -449,12 +493,17 @@ class MainWindow(QMainWindow):
         self.ssh_key_type_combo.setCurrentText(self.settings["ssh_key_type"])
         self.layout_left.addWidget(self.ssh_key_type_combo)
 
+        self.layout_left.addWidget(QLabel("SSH Key Path"))
+        self.ssh_key_path_entry = QLineEdit()
+        self.ssh_key_path_entry.setPlaceholderText(self.settings["ssh_key_path"])
+        self.layout_left.addWidget(self.ssh_key_path_entry)
+
         self.layout_left.addWidget(QLabel("SSH Timeout (seconds)"))
-        self.ssh_timeout_entry = QSlider(Qt.Orientation.Horizontal)
-        self.ssh_timeout_entry.setMinimum(1)
-        self.ssh_timeout_entry.setMaximum(60)
-        self.ssh_timeout_entry.setValue(self.settings["ssh_timeout"])
-        self.layout_left.addWidget(self.ssh_timeout_entry)
+        self.ssh_timeout_slider = QSlider(Qt.Orientation.Horizontal)
+        self.ssh_timeout_slider.setMinimum(1)
+        self.ssh_timeout_slider.setMaximum(60)
+        self.ssh_timeout_slider.setValue(self.settings["ssh_timeout"])
+        self.layout_left.addWidget(self.ssh_timeout_slider)
         self.ssh_timeout_label = QLabel(str(self.settings["ssh_timeout"]))
         self.layout_left.addWidget(self.ssh_timeout_label)
 
@@ -608,11 +657,6 @@ class MainWindow(QMainWindow):
             lambda vm, load_value: self.load_vm_widget(vm, load_value)
         )
 
-        self.vm_threads: list[QThread] = []
-        self.vm_workers: list[QObject] = []
-        self.ssh = None
-        self.tasks: list[Task] = []
-        self.saved_password = None
         self.start_load_vms()
 
     # Destructor
@@ -670,45 +714,6 @@ class MainWindow(QMainWindow):
         raise ValueError(err)
 
     # Settings
-
-    def load_settings(self) -> None:
-        """
-        Load user settings from `PATH_SETTINGS`.
-
-        :return: An instance of the `Settings` class containing the loaded settings.
-        """
-
-        self.settings = {}
-
-        if not os.path.exists(PATH_SETTINGS):
-            settings_dir = os.path.dirname(PATH_SETTINGS)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
-
-        with open(PATH_SETTINGS, "r") as file:
-            for line in file:
-
-                if line[0] in ("#", "\n"):
-                    continue
-
-                line = line.strip()
-                if line.endswith("="):
-                    self.settings[line[:-1]] = ""
-                    continue
-                setting, value = line.split("=")
-
-                if setting in ("ssh_auth_method", "ssh_timeout"):
-                    value = int(value)
-                self.settings[setting] = value
-
-        for setting in (
-            "ssh_auth_method", "ssh_key_type", "ssh_timeout",
-            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
-            "vm_ext", "vm_hashfile_path"
-        ):
-            if setting not in self.settings.keys():
-                self.raise_ssh_error("Missing setting: " + setting)
 
     def set_setting(self, setting: str, value: str) -> None:
         """
@@ -771,26 +776,6 @@ class MainWindow(QMainWindow):
     # Connect SSH
 
     def start_connect_ssh(self) -> None:
-
-        # Settings Check
-
-        missing_settings = []
-        for setting in (
-            "server_hostname", "server_username",
-            "local_vms_path", "server_vms_path", "vm_ext", "vm_hashfile_path"
-        ):
-            if setting not in self.settings.keys():
-                missing_settings.append(setting)
-        if (
-            self.settings["ssh_auth_method"] in
-            (SSH_AUTH_METHOD.PRIVATE_KEY, SSH_AUTH_METHOD.PUBLIC_KEY) and
-            self.settings["key_path"] == ""
-        ):
-            missing_settings.append("key_path")
-
-        if len(missing_settings) > 0:
-            self.warning_signal.emit("Missing settings: " + ", ".join(missing_settings))
-            return
 
         # Get Password
 
