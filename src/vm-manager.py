@@ -87,21 +87,25 @@ with open(PATH_DOC + "/README.md", "r") as file:
         file.readline()
     VERSION = file.readline()[12:]
 
-SETTING_TYPES = {
-    "ssh_auth_method": int,
-    "ssh_key_type": str,
-    "ssh_key_path": str,
-    "ssh_timeout": int,
-    "server_hostname": str,
-    "server_username": str,
-    "local_vms_path": str,
-    "server_vms_path": str,
-    "vm_ext": str,
-    "vm_hashfile_path": str
+SETTING_PRETTY_NAMES = {
+    "ssh_auth_method": "SSH Authentication Method",
+    "ssh_key_type": "SSH Key Type",
+    "ssh_key_path": "SSH Key Path",
+    "ssh_timeout": "SSH Timeout",
+    "server_hostname": "Server Hostname",
+    "server_username": "Server Username",
+    "local_vms_path": "Local VMs Path",
+    "server_vms_path": "Server VMs Path",
+    "vm_ext": "VM Extension",
+    "vm_hashfile_path": "VM Hash File Path"
 }
+DEFAULT_SSH_AUTH_METHOD = "Password"
+DEFAULT_SSH_KEY_TYPE = "RSA"
+DEFAULT_SSH_TIMEOUT = 10
 
-SSH_AUTH_METHOD_STRS = ("Password", "Loaded Key", "Encrypted Key", "Unencrypted Key")
+SSH_AUTH_METHODS = ("Password", "Loaded Key", "Encrypted Key", "Unencrypted Key")
 SSH_KEY_TYPES = ("RSA", "ECDSA", "Ed25519")
+SSH_TIMEOUT_MAX = 60
 
 ICON_NAMES = {
     "debian": ("debian", "ubuntu"),
@@ -113,12 +117,11 @@ icons_dict: dict[str, str] = {}
 
 # Enums
 
-class SSH_AUTH_METHOD(enum.IntEnum):
+class SSH_STATE(enum.IntEnum):
 
-    PASSWORD = 0
-    LOADED_KEY = 1
-    ENCRYPTED_KEY = 2
-    UNENCRYPTED_KEY = 3
+    DISCONNECTED = 0
+    CONNECTING = 1
+    CONNECTED = 2
 
 class LOAD_VALUE(enum.IntEnum):
 
@@ -176,14 +179,6 @@ class InfoWindow(QMainWindow):
         self.window = QWidget()
         self.layout_back = QVBoxLayout(self.window)
         self.setCentralWidget(self.window)
-
-        # Task and SSH Members
-
-        self.vm_threads: list[QThread] = []
-        self.vm_workers: list[QObject] = []
-        self.ssh = None
-        self.tasks: list[Task] = []
-        self.saved_password = None
 
         # Project Info
 
@@ -307,7 +302,7 @@ class VirtualMachine:
 class Worker(QObject):
 
     finished = Signal()
-    warning_signal = Signal(tuple[str, str])
+    warning_signal = Signal(str, str)
 
     # Constructor
 
@@ -322,13 +317,8 @@ class Worker(QObject):
 
     def connect_ssh(self) -> None:
 
-        try:
-            self.MainWindow.connect_ssh()
-        except Exception as e:
-            self.warning_signal.emit(("Error Connecting to SSH", str(e)))
-            self.MainWindow.ssh = None
-        finally:
-            self.finished.emit()
+        self.MainWindow.connect_ssh()
+        self.finished.emit()
 
     def load_vms(self) -> None:
 
@@ -350,6 +340,8 @@ class Task:
 
         self.task_type = task_type
         self.vm = vm
+        self.thread: QThread | None = None
+        self.worker: Worker | None = None
         match task_type:
             case TASK_TYPE.CONNECT_SSH:
                 self.task_str = "Connect SSH"
@@ -403,8 +395,7 @@ class MainWindow(QMainWindow):
 
     # Signals
 
-    warning_signal = Signal(str)
-    raise_ssh_error_signal = Signal(str)
+    warning_signal = Signal(str, str)
 
     load_vms_signal = Signal()
     load_vm_widgets_signal = Signal()
@@ -432,31 +423,78 @@ class MainWindow(QMainWindow):
         self.layout_back = QVBoxLayout(self.window)
         self.setCentralWidget(self.window)
 
+        # Task and SSH Members
+
+        self.ssh = None
+        self.ssh_state = SSH_STATE.DISCONNECTED
+        self.tasks: list[Task] = []
+        self.saved_password = None
+
         # Load Settings
 
-        self.settings = {}
-        for key in SETTING_TYPES.keys():
-            self.settings[key] = None
+        self.settings = {
+            "ssh_auth_method": DEFAULT_SSH_AUTH_METHOD,
+            "ssh_key_type": DEFAULT_SSH_KEY_TYPE,
+            "ssh_key_path": "",
+            "ssh_timeout": DEFAULT_SSH_TIMEOUT,
+            "server_hostname": "",
+            "server_username": "",
+            "local_vms_path": "",
+            "server_vms_path": "",
+            "vm_ext": "",
+            "vm_hashfile_path": ""
+        }
 
-        if not os.path.exists(PATH_SETTINGS):
-            settings_dir = os.path.dirname(PATH_SETTINGS)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
+        setting_found = dict.fromkeys(self.settings.keys(), False)
+
+        self.ensure_path_settings()
 
         with open(PATH_SETTINGS, "r") as file:
             for line in file.readlines():
                 if line[0] in ("#", "\n") or "=" not in line:
                     continue
                 setting, value = line.strip().split("=", 1)
-                if setting in SETTING_TYPES.keys():
-                    self.settings[setting] = SETTING_TYPES[setting](value)
+                if setting in self.settings.keys():
+                    if type(value) == type(self.settings[setting]):
+                        self.settings[setting] = value
+                    else:
+                        self.settings[setting] = type(self.settings[setting])(value)
+                    setting_found[setting] = True
 
-        if None in self.settings.items():
-            QMessageBox.warning(
-                parent = self,
-                title = "Missing Setting(s)",
-                text = "Missing setting(s) when reading settings file at " + PATH_SETTINGS + "."
+        missing_settings = tuple(
+            setting for setting in self.settings.keys() if not setting_found[setting]
+        )
+
+        if len(missing_settings) > 0:
+            text = f"Missing setting(s) in settings file{PATH_SETTINGS}:\n"
+            for setting in missing_settings:
+                text += f"{SETTING_PRETTY_NAMES[setting]} (set to \"{self.settings[setting]}\")\n"
+            self.show_warning("Missing Setting(s)", text)
+
+        invalid_settings_str = ""
+
+        if self.settings["ssh_auth_method"] not in SSH_AUTH_METHODS:
+            self.settings["ssh_auth_method"] = DEFAULT_SSH_AUTH_METHOD
+            invalid_settings_str += (
+                f"{SETTING_PRETTY_NAMES['ssh_auth_method']} (set to \"{DEFAULT_SSH_AUTH_METHOD}\")\n"
+            )
+
+        if self.settings["ssh_key_type"] not in SSH_KEY_TYPES:
+            invalid_settings_str += (
+                f"{SETTING_PRETTY_NAMES['ssh_key_type']} (set to \"{DEFAULT_SSH_KEY_TYPE}\")\n"
+            )
+            self.settings["ssh_key_type"] = DEFAULT_SSH_KEY_TYPE
+
+        if self.settings["ssh_timeout"] < 1 or self.settings["ssh_timeout"] > SSH_TIMEOUT_MAX:
+            invalid_settings_str += (
+                f"{SETTING_PRETTY_NAMES['ssh_timeout']} (set to \"{DEFAULT_SSH_TIMEOUT}\")\n"
+            )
+            self.settings["ssh_timeout"] = DEFAULT_SSH_TIMEOUT
+
+        if len(invalid_settings_str) > 0:
+            self.show_warning(
+                "Invalid Setting(s)",
+                f"Invalid setting(s) in settings file{PATH_SETTINGS}:\n" + invalid_settings_str
             )
 
         # Top
@@ -483,7 +521,7 @@ class MainWindow(QMainWindow):
 
         self.layout_left.addWidget(QLabel("SSH Authentication Method"))
         self.ssh_auth_method_combo = QComboBox()
-        self.ssh_auth_method_combo.addItems(SSH_AUTH_METHOD_STRS)
+        self.ssh_auth_method_combo.addItems(SSH_AUTH_METHODS)
         self.ssh_auth_method_combo.setCurrentIndex(self.settings["ssh_auth_method"])
         self.layout_left.addWidget(self.ssh_auth_method_combo)
 
@@ -501,7 +539,7 @@ class MainWindow(QMainWindow):
         self.layout_left.addWidget(QLabel("SSH Timeout (seconds)"))
         self.ssh_timeout_slider = QSlider(Qt.Orientation.Horizontal)
         self.ssh_timeout_slider.setMinimum(1)
-        self.ssh_timeout_slider.setMaximum(60)
+        self.ssh_timeout_slider.setMaximum(SSH_TIMEOUT_MAX)
         self.ssh_timeout_slider.setValue(self.settings["ssh_timeout"])
         self.layout_left.addWidget(self.ssh_timeout_slider)
         self.ssh_timeout_label = QLabel(str(self.settings["ssh_timeout"]))
@@ -649,7 +687,6 @@ class MainWindow(QMainWindow):
         # Connect Signals
 
         self.warning_signal.connect(self.show_warning)
-        self.raise_ssh_error_signal.connect(self.raise_ssh_error)
     
         self.load_vms_signal.connect(self.start_load_vms)
         self.load_vm_widgets_signal.connect(self.load_vm_widgets)
@@ -694,26 +731,109 @@ class MainWindow(QMainWindow):
 
     # Functions
 
+    # General
+
+    def show_info(self) -> None:
+        """Open the info window."""
+
+        info_window = InfoWindow(self)
+        info_window.show()
+
+    def clear_password(self) -> None:
+
+        if self.saved_password is not None:
+            ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
+            self.saved_password = None
+
+    def set_password(self) -> bool:
+
+        self.clear_password()
+        input_dialog = QInputDialog(self)
+        input_dialog.setWindowTitle("SSH (Key) Password")
+        input_dialog.setLabelText("Enter Password")
+        input_dialog.setInputMode(QInputDialog.TextInput)
+        input_dialog.setTextEchoMode(QLineEdit.Password)
+        input_dialog.resize(300, 200)
+        ok = input_dialog.exec()
+        if ok:
+            self.saved_password = input_dialog.textValue()
+            return True
+        self.saved_password = None
+        return False
+
+    def get_icon(self, vms_path: str, vm_path: str) -> str:
+
+        # Check Saved Icons
+
+        global icons_dict
+        icon = icons_dict[vm_path] if vm_path in icons_dict.keys() else "unknown"
+
+        if icon == "unknown":
+
+            # Search Function
+
+            def search_icon_names(target):
+                nonlocal icon
+                for key in ICON_NAMES.keys():
+                    found = False
+                    for assoc_name in ICON_NAMES[key]:
+                        if assoc_name in target.lower():
+                            icon = key
+                            found = True
+                            break
+                    if found:
+                        break
+
+            # Compare with Name
+
+            search_icon_names(vm_path)
+
+            if icon == "unknown":
+
+                # Look for OS Type
+
+                os_type = None
+                search_path = os.path.join(vms_path, vm_path)
+                if os.path.exists(search_path):
+                    for path in os.listdir(search_path):
+                        if path.endswith(".vbox"):
+                            with open(os.path.join(search_path, path), "r") as file:
+                                for line in file.readlines():
+                                    if line.strip().startswith("<Machine"):
+                                        for word in line.strip().split(" "):
+                                            if word.startswith("OSType="):
+                                                os_type = word[7:].lower()
+                                                break
+                                        break
+                            break
+
+                # Compare with OS Type
+
+                if os_type is not None:
+                    search_icon_names(os_type)
+
+        return icon + ".png"
+
     # Errors and Warnings
 
-    def show_warning(self, warning_str: tuple[str, str]) -> None:
+    def show_warning(self, title: str, text: str) -> None:
 
-        print(f"{warning_str[0]}: {warning_str[1]}")
-        QMessageBox.warning(self, warning_str[0], warning_str[1])
+        print(f"{title}: {text}")
+        QMessageBox.warning(self, title, text)
 
     def show_already_running(self, task: Task) -> None:
 
-        message_str = f"Already running task: {task.task_str}."
-        print(message_str)
-        QMessageBox.warning(self, "Task Already Running", message_str)
-
-    def raise_ssh_error(self, err: str) -> None:
-
-        error_message = QErrorMessage(self)
-        error_message.showMessage(err)
-        raise ValueError(err)
+        self.show_warning("Duplicate Task", f"Already running task: {task.task_str}.")
 
     # Settings
+
+    def ensure_path_settings(self) -> None:
+
+        if not os.path.exists(PATH_SETTINGS):
+            settings_dir = os.path.dirname(PATH_SETTINGS)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir)
+            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
 
     def set_setting(self, setting: str, value: str) -> None:
         """
@@ -723,11 +843,7 @@ class MainWindow(QMainWindow):
         :param value: The value to set `setting` to.
         """
 
-        if not os.path.exists(PATH_SETTINGS) and RELEASE_PATHS:
-            settings_dir = os.path.dirname(PATH_SETTINGS)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir)
-            shutil.copy(PATH_DEFAULT_SETTINGS, PATH_SETTINGS)
+        self.ensure_path_settings()
 
         with open(PATH_SETTINGS, "r+") as file:
             pass
@@ -777,29 +893,32 @@ class MainWindow(QMainWindow):
 
     def start_connect_ssh(self) -> None:
 
-        # Get Password
+        self.ssh_state = SSH_STATE.CONNECTING
 
-        self.clear_password()
+        # Settings Check
+
+        warnings = []
+
+        ssh_auth_method = self.settings["ssh_auth_method"]
+        if ssh_auth_method in ("Password", "Encrypted Key") and not self.set_password():
+            warnings.append("Password required and none given.")
         if (
-            self.settings["ssh_auth_method"] in
-            (SSH_AUTH_METHOD.PASSWORD, SSH_AUTH_METHOD.PRIVATE_KEY)
+            ssh_auth_method in ("Encrypted Key", "Unencrypted Key") and
+            not os.path.isfile(self.settings["ssh_key_path"])
         ):
-            input_dialog = QInputDialog(self)
-            input_dialog.setWindowTitle(
-                "SSH " + (
-                    "Key " if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY
-                    else ""
-                ) + "Password"
-            )
-            input_dialog.setLabelText("Enter Password")
-            input_dialog.setInputMode(QInputDialog.TextInput)
-            input_dialog.setTextEchoMode(QLineEdit.Password)
-            input_dialog.resize(300, 200)
-            ok = input_dialog.exec()
-            if ok:
-                self.saved_password = input_dialog.textValue()
-            else:
-                self.saved_password = None
+            warnings.append(f"SSH key path {self.settings["ssh_key_path"]} does not exist.")
+        for setting in (
+            "server_hostname", "server_username", "local_vms_path", "server_vms_path",
+            "vm_ext", "vm_hashfile_path"
+        ):
+            if self.settings[setting] == "":
+                warnings.append(f"Setting {SETTING_PRETTY_NAMES[setting]} is empty.")
+
+        if len(warnings) > 0:
+            self.ssh_state = SSH_STATE.DISCONNECTED
+            self.ssh = None
+            self.show_warning("Error(s) Before SSH Connection", "\n".join(warnings))
+            return
 
         # Connect SSH
 
@@ -807,18 +926,18 @@ class MainWindow(QMainWindow):
 
         if not self.check_tasks(task):
 
-            self.ssh_thread = QThread(self)
-            self.ssh_worker = Worker(self)
-            self.ssh_worker.moveToThread(self.ssh_thread)
+            thread = QThread(self)
+            worker = Worker(self)
+            worker.moveToThread(thread)
 
-            self.ssh_worker.warning_signal.connect(self.show_warning)
-            self.ssh_thread.started.connect(self.ssh_worker.connect_ssh)
-            self.ssh_worker.finished.connect(self.ssh_thread.quit)
-            self.ssh_thread.finished.connect(self.ssh_worker.deleteLater)
-            self.ssh_thread.finished.connect(lambda: self.remove_task(task))
+            worker.warning_signal.connect(self.show_warning)
+            thread.started.connect(worker.connect_ssh)
+            worker.finished.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(lambda: self.remove_task(task))
 
             self.add_task(task)
-            self.ssh_thread.start()
+            thread.start()
 
         else:
 
@@ -833,23 +952,20 @@ class MainWindow(QMainWindow):
 
         # Password Connection
 
-        if self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PASSWORD:
-            if self.saved_password is None:
-                raise ValueError("Auth type is password and no password given.")
+        if self.settings["ssh_auth_method"] == "Password":
             password = self.saved_password
 
         # Key Connection
 
-        elif self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.LOADED_KEY:
+        # Loaded Key
+
+        elif self.settings["ssh_auth_method"] == "Loaded Key":
             self.ssh.load_system_host_keys()
             self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
 
+        # Encrypted Key or Unencrypted Key
+
         else:
-            if (
-                self.settings["ssh_auth_method"] == SSH_AUTH_METHOD.PRIVATE_KEY and
-                self.saved_password is None
-            ):
-                raise ValueError("Auth type requires password and no password given.")
             if self.settings["ssh_key_type"] == "RSA":
                 key = paramiko.RSAKey.from_private_key_file(
                     self.settings["ssh_key_path"], self.saved_password
@@ -865,12 +981,18 @@ class MainWindow(QMainWindow):
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             pkey = key
 
-        self.ssh.connect(
-            hostname=self.settings["server_hostname"], username=self.settings["server_username"],
-            password=password, pkey=pkey,
-            timeout=self.settings["ssh_timeout"], banner_timeout=self.settings["ssh_timeout"],
-            auth_timeout=self.settings["ssh_timeout"]
-        )
+        try:
+            self.ssh.connect(
+                hostname=self.settings["server_hostname"], username=self.settings["server_username"],
+                password=password, pkey=pkey,
+                timeout=self.settings["ssh_timeout"], banner_timeout=self.settings["ssh_timeout"],
+                auth_timeout=self.settings["ssh_timeout"]
+            )
+        except Exception as e:
+            self.ssh_state = SSH_STATE.DISCONNECTED
+            self.ssh = None
+            self.show_warning("Error During SSH Connection", str(e))
+            return
 
         # Install Any Missing Scripts
 
@@ -896,13 +1018,15 @@ class MainWindow(QMainWindow):
 
         sftp.close()
 
+        self.ssh_state = SSH_STATE.CONNECTED
+
     # Load VMs
 
     def start_load_vms(self) -> None:
 
         # Connect SSH
 
-        if self.ssh is None:
+        if self.ssh_state == SSH_STATE.DISCONNECTED:
             self.start_connect_ssh()
 
         # Load Virtual Machines
@@ -1297,7 +1421,6 @@ class MainWindow(QMainWindow):
             vm_worker.warning_signal.connect(self.show_warning)
             # vm_thread.started.connect(lambda: vm_worker.run(self.push_vm))
             vm_thread.started.connect(vm_worker.push_vm)
-            vm_worker.warning_signal.connect(self.show_warning)
             vm_worker.finished.connect(vm_thread.quit)
             vm_thread.finished.connect(vm_worker.deleteLater)
             vm_thread.finished.connect(
@@ -1314,73 +1437,6 @@ class MainWindow(QMainWindow):
         else:
 
             self.show_already_running(task)
-
-    # Other
-
-    def show_info(self) -> None:
-        """Open the info window."""
-
-        info_window = InfoWindow(self)
-        info_window.show()
-
-    def clear_password(self) -> None:
-
-        if self.saved_password is not None:
-            ctypes.memset(id(self.saved_password) + 20, 0, sys.getsizeof(self.saved_password))
-            self.saved_password = None
-
-    def get_icon(self, vms_path: str, vm_path: str) -> str:
-
-        # Check Saved Icons
-
-        global icons_dict
-        icon = icons_dict[vm_path] if vm_path in icons_dict.keys() else "unknown"
-
-        if icon == "unknown":
-
-            # Search Function
-
-            def search_icon_names(target):
-                nonlocal icon
-                for key in ICON_NAMES.keys():
-                    found = False
-                    for assoc_name in ICON_NAMES[key]:
-                        if assoc_name in target.lower():
-                            icon = key
-                            found = True
-                            break
-                    if found:
-                        break
-
-            # Compare with Name
-
-            search_icon_names(vm_path)
-
-            if icon == "unknown":
-
-                # Look for OS Type
-
-                os_type = None
-                search_path = os.path.join(vms_path, vm_path)
-                if os.path.exists(search_path):
-                    for path in os.listdir(search_path):
-                        if path.endswith(".vbox"):
-                            with open(os.path.join(search_path, path), "r") as file:
-                                for line in file.readlines():
-                                    if line.strip().startswith("<Machine"):
-                                        for word in line.strip().split(" "):
-                                            if word.startswith("OSType="):
-                                                os_type = word[7:].lower()
-                                                break
-                                        break
-                            break
-
-                # Compare with OS Type
-
-                if os_type is not None:
-                    search_icon_names(os_type)
-
-        return icon + ".png"
 
 
 # Functions
